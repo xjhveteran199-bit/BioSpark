@@ -295,7 +295,7 @@ const Trainer = (() => {
     function _onTrainingComplete(msg) {
         const banner = document.getElementById('train-complete-banner');
         const bestAcc = (msg.best_val_acc * 100).toFixed(2);
-        banner.innerHTML = `Training complete! Best validation accuracy: <strong>${bestAcc}%</strong> over ${msg.total_epochs} epochs.`;
+        banner.innerHTML = `Training complete! Best validation accuracy: <strong>${bestAcc}%</strong> over ${msg.total_epochs} epochs. Loading results…`;
         banner.classList.remove('hidden');
 
         document.getElementById('train-progress-fill').style.width = '100%';
@@ -304,6 +304,116 @@ const Trainer = (() => {
         document.getElementById('train-start-btn').disabled = false;
         document.getElementById('train-start-btn').textContent =
             App.lang === 'zh' ? '重新训练' : 'Re-train';
+
+        // Phase 3: fetch post-training visualizations
+        _loadPostTrainingResults();
+    }
+
+    // ───────────────────────────────────────────────────────────
+    // Phase 3 — Post-Training Visualizations
+    // ───────────────────────────────────────────────────────────
+
+    async function _loadPostTrainingResults() {
+        if (!jobId) return;
+        document.getElementById('train-results-section').classList.remove('hidden');
+
+        // Fetch confusion matrix and t-SNE in parallel
+        const [cmResp, tsneResp] = await Promise.allSettled([
+            fetch(`${API_BASE}/train/${jobId}/confusion_matrix`).then(r => r.ok ? r.json() : Promise.reject(r)),
+            fetch(`${API_BASE}/train/${jobId}/tsne`).then(r => r.ok ? r.json() : Promise.reject(r)),
+        ]);
+
+        if (cmResp.status === 'fulfilled') _renderConfusionMatrix(cmResp.value);
+        if (tsneResp.status === 'fulfilled') _renderTSNE(tsneResp.value);
+
+        document.getElementById('train-results-section').scrollIntoView({ behavior: 'smooth' });
+
+        // Update banner
+        const banner = document.getElementById('train-complete-banner');
+        banner.innerHTML = banner.innerHTML.replace('Loading results…', '');
+    }
+
+    function _renderConfusionMatrix(data) {
+        const { matrix, class_names, per_class, accuracy } = data;
+        const n = class_names.length;
+
+        // Build annotation text (counts)
+        const annotations = [];
+        for (let i = 0; i < n; i++) {
+            for (let j = 0; j < n; j++) {
+                annotations.push({
+                    x: class_names[j], y: class_names[i],
+                    text: String(matrix[i][j]),
+                    showarrow: false,
+                    font: { color: matrix[i][j] > 0 ? 'white' : '#999', size: 13 },
+                });
+            }
+        }
+
+        Plotly.newPlot('train-cm-chart', [{
+            z: matrix,
+            x: class_names,
+            y: class_names,
+            type: 'heatmap',
+            colorscale: [[0, '#f0f4ff'], [0.5, '#6366f1'], [1, '#1e1b4b']],
+            showscale: false,
+            hovertemplate: 'True: %{y}<br>Pred: %{x}<br>Count: %{z}<extra></extra>',
+        }], {
+            margin: { t: 20, r: 10, b: 60, l: 80 },
+            paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+            font: { size: 11, color: '#1e293b' },
+            xaxis: { title: 'Predicted', side: 'bottom' },
+            yaxis: { title: 'True', autorange: 'reversed' },
+            annotations,
+        }, { responsive: true, displayModeBar: false });
+
+        // Per-class metrics table
+        const tableHTML = `
+            <table class="train-table">
+                <thead><tr><th>Class</th><th>Precision</th><th>Recall</th><th>F1</th><th>Support</th></tr></thead>
+                <tbody>
+                    ${per_class.map(c => `<tr>
+                        <td>${c.class}</td>
+                        <td>${(c.precision * 100).toFixed(1)}%</td>
+                        <td>${(c.recall * 100).toFixed(1)}%</td>
+                        <td>${(c.f1 * 100).toFixed(1)}%</td>
+                        <td>${c.support}</td>
+                    </tr>`).join('')}
+                    <tr style="font-weight:600;border-top:2px solid var(--border)">
+                        <td>Overall Accuracy</td>
+                        <td colspan="4">${(accuracy * 100).toFixed(2)}%</td>
+                    </tr>
+                </tbody>
+            </table>`;
+        document.getElementById('train-metrics-table').innerHTML = tableHTML;
+    }
+
+    function _renderTSNE(data) {
+        const { x, y, labels, class_names } = data;
+
+        // Group by class for color-coded scatter
+        const traces = class_names.map((cls, i) => {
+            const idx = labels.map((l, j) => l === cls ? j : -1).filter(j => j >= 0);
+            return {
+                x: idx.map(j => x[j]),
+                y: idx.map(j => y[j]),
+                mode: 'markers',
+                type: 'scatter',
+                name: cls,
+                marker: { size: 7, color: CLASS_COLORS[i % CLASS_COLORS.length], opacity: 0.8 },
+                hovertemplate: `${cls}<br>(%{x:.2f}, %{y:.2f})<extra></extra>`,
+            };
+        });
+
+        Plotly.newPlot('train-tsne-chart', traces, {
+            margin: { t: 10, r: 10, b: 40, l: 40 },
+            paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+            font: { size: 11, color: '#1e293b' },
+            xaxis: { title: 't-SNE 1', zeroline: false },
+            yaxis: { title: 't-SNE 2', zeroline: false },
+            legend: { orientation: 'h', y: 1.12 },
+            showlegend: true,
+        }, { responsive: true, displayModeBar: false });
     }
 
     // ───────────────────────────────────────────────────────────
@@ -320,7 +430,7 @@ const Trainer = (() => {
     function resetTrainer() {
         datasetId = null; datasetSummary = null; jobId = null; history = [];
         if (ws) { ws.close(); ws = null; }
-        ['train-summary-section', 'train-config-section', 'train-dashboard-section'].forEach(id =>
+        ['train-summary-section', 'train-config-section', 'train-dashboard-section', 'train-results-section'].forEach(id =>
             document.getElementById(id).classList.add('hidden')
         );
         document.getElementById('train-upload-status').classList.add('hidden');

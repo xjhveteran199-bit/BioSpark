@@ -13,7 +13,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile, WebSocket, WebSo
 from pydantic import BaseModel, Field
 
 from backend.services.dataset_loader import load_labeled_dataset
-from backend.services.trainer import training_manager
+from backend.services.trainer import training_manager, compute_confusion_matrix, compute_tsne
 
 router = APIRouter()
 
@@ -200,6 +200,48 @@ async def training_websocket(ws: WebSocket, job_id: str):
         pass
     finally:
         job.unregister_callback(_on_metric)
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — Post-training visualizations
+# ---------------------------------------------------------------------------
+
+@router.get("/train/{job_id}/confusion_matrix")
+async def get_confusion_matrix(job_id: str):
+    """
+    Compute and return the confusion matrix for the validation set.
+
+    Returns the matrix as a 2-D array, class names, per-class precision /
+    recall / F1, and overall accuracy.
+    """
+    job = training_manager.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Training job not found.")
+    if job.status != "completed":
+        raise HTTPException(status_code=409, detail=f"Training not complete (status: {job.status}).")
+    try:
+        return compute_confusion_matrix(job)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/train/{job_id}/tsne")
+async def get_tsne(job_id: str, perplexity: float = 30.0):
+    """
+    Compute t-SNE on penultimate-layer features (128-d → 2-D) for the
+    validation set.
+
+    Returns x/y coordinates + class labels for a Plotly scatter plot.
+    """
+    job = training_manager.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Training job not found.")
+    if job.status != "completed":
+        raise HTTPException(status_code=409, detail=f"Training not complete (status: {job.status}).")
+    try:
+        return compute_tsne(job, perplexity=perplexity)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 # ---------------------------------------------------------------------------

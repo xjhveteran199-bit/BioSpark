@@ -365,3 +365,80 @@ class TrainingManager:
 
 
 training_manager = TrainingManager()
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — Post-training analysis helpers
+# ---------------------------------------------------------------------------
+
+def compute_confusion_matrix(job: TrainingJob) -> dict:
+    """Run inference on val set and return confusion matrix + per-class metrics."""
+    if job.model is None or job.val_X is None:
+        raise ValueError("Model or validation data not available.")
+
+    model = job.model
+    model.eval()
+
+    X_val = torch.FloatTensor(job.val_X).unsqueeze(1)  # (N, 1, L)
+    with torch.no_grad():
+        preds = model(X_val).argmax(dim=1).numpy()
+    y_true = job.val_y
+
+    n_classes = len(job.class_names)
+    matrix = np.zeros((n_classes, n_classes), dtype=int)
+    for t, p in zip(y_true, preds):
+        matrix[int(t)][int(p)] += 1
+
+    # Per-class precision / recall / f1
+    per_class = []
+    for i in range(n_classes):
+        tp = int(matrix[i][i])
+        fp = int(matrix[:, i].sum() - tp)
+        fn = int(matrix[i, :].sum() - tp)
+        prec = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        rec = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0.0
+        per_class.append({
+            "class": job.class_names[i],
+            "precision": round(prec, 4),
+            "recall": round(rec, 4),
+            "f1": round(f1, 4),
+            "support": int(matrix[i, :].sum()),
+        })
+
+    return {
+        "matrix": matrix.tolist(),
+        "class_names": job.class_names,
+        "per_class": per_class,
+        "accuracy": round(float(np.trace(matrix)) / max(float(matrix.sum()), 1), 4),
+    }
+
+
+def compute_tsne(job: TrainingJob, perplexity: float = 30.0) -> dict:
+    """Extract 128-d features from the penultimate layer, reduce to 2-D via t-SNE."""
+    if job.model is None or job.val_X is None:
+        raise ValueError("Model or validation data not available.")
+
+    model = job.model
+    model.eval()
+
+    X_val = torch.FloatTensor(job.val_X).unsqueeze(1)
+    with torch.no_grad():
+        feats = model.extract_features(X_val).numpy()  # (N, 128)
+
+    from sklearn.manifold import TSNE
+
+    # Clamp perplexity to valid range
+    n_samples = feats.shape[0]
+    perplexity = min(perplexity, max(2.0, (n_samples - 1) / 3.0))
+
+    tsne = TSNE(n_components=2, perplexity=perplexity, random_state=42, max_iter=800)
+    coords = tsne.fit_transform(feats)  # (N, 2)
+
+    return {
+        "x": coords[:, 0].tolist(),
+        "y": coords[:, 1].tolist(),
+        "labels": [job.class_names[int(i)] for i in job.val_y],
+        "label_indices": job.val_y.tolist(),
+        "class_names": job.class_names,
+    }

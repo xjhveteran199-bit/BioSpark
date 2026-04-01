@@ -217,6 +217,22 @@
             <div id="train-complete-banner" class="status success hidden"></div>
         </section>
 
+        <!-- Train Step 5: Post-Training Results (Confusion Matrix + t-SNE) -->
+        <section id="train-results-section" class="card hidden">
+            <h2 data-en="T5. Post-Training Results" data-zh="T5. 训练结果可视化">T5. Post-Training Results</h2>
+            <div class="train-charts-grid">
+                <div>
+                    <h3 data-en="Confusion Matrix" data-zh="混淆矩阵">Confusion Matrix</h3>
+                    <div id="train-cm-chart" class="chart-container" style="height:360px;"></div>
+                </div>
+                <div>
+                    <h3 data-en="t-SNE Feature Visualization" data-zh="t-SNE 特征可视化">t-SNE Feature Visualization</h3>
+                    <div id="train-tsne-chart" class="chart-container" style="height:360px;"></div>
+                </div>
+            </div>
+            <div id="train-metrics-table" style="margin-top:1rem;"></div>
+        </section>
+
         </div><!-- end #train-mode -->
 
     </main>
