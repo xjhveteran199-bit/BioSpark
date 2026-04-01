@@ -357,6 +357,96 @@ main {
     justify-content: flex-end;
 }
 
+/* ─── Mode Tabs ─────────────────────────────────────────────────── */
+.mode-tabs {
+    display: flex;
+    gap: 0.5rem;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.35rem;
+    width: fit-content;
+    box-shadow: var(--shadow);
+}
+
+.mode-tab {
+    display: flex;
+    align-items: center;
+    padding: 8px 20px;
+    border: none;
+    border-radius: calc(var(--radius) - 4px);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    background: transparent;
+    color: var(--text-secondary);
+    transition: all 0.2s;
+}
+.mode-tab:hover { background: var(--bg); color: var(--text); }
+.mode-tab.active { background: var(--primary); color: white; }
+
+/* ─── Training Section ──────────────────────────────────────────── */
+.section-hint {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+}
+.section-hint code {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 0.85em;
+    color: var(--primary-dark);
+}
+
+.train-summary-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    align-items: start;
+}
+
+.train-class-table {
+    overflow-y: auto;
+    max-height: 280px;
+}
+
+.train-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+.train-table th, .train-table td {
+    padding: 7px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+.train-table th {
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--bg);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+.train-table td:nth-child(2) { text-align: right; }
+
+.class-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+
+@media (max-width: 768px) {
+    .train-summary-grid { grid-template-columns: 1fr; }
+    .mode-tabs { width: 100%; }
+    .mode-tab { flex: 1; justify-content: center; }
+}
+
 /* Footer */
 footer {
     text-align: center;

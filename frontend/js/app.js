@@ -5,10 +5,12 @@
 const App = {
     selectedModel: null,
     lang: 'en', // 'en' or 'zh'
+    mode: 'analyze', // 'analyze' | 'train'
 
     init() {
         Uploader.init();
         Visualizer.init();
+        Trainer.init();
         this.bindEvents();
         this.loadModels();
 
@@ -24,6 +26,18 @@ const App = {
         document.getElementById('export-json-btn').addEventListener('click', () => Results.exportJSON());
         document.getElementById('export-csv-btn').addEventListener('click', () => Results.exportCSV());
         document.getElementById('new-analysis-btn').addEventListener('click', () => this.reset());
+    },
+
+    // --- Mode Switch ---
+    switchMode(mode) {
+        this.mode = mode;
+        document.getElementById('analyze-mode').classList.toggle('hidden', mode !== 'analyze');
+        document.getElementById('train-mode').classList.toggle('hidden', mode !== 'train');
+        document.querySelectorAll('.mode-tab').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+        // Re-bind browse links after DOM toggle
+        if (mode === 'train') Trainer._bindBrowseLink();
     },
 
     // --- Language Toggle ---

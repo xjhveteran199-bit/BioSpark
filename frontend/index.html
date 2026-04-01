@@ -28,6 +28,21 @@
     </header>
 
     <main>
+        <!-- Mode Tabs -->
+        <div class="mode-tabs">
+            <button class="mode-tab active" data-mode="analyze" onclick="App.switchMode('analyze')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:6px"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                <span data-en="Analyze" data-zh="推理分析">Analyze</span>
+            </button>
+            <button class="mode-tab" data-mode="train" onclick="App.switchMode('train')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:6px"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+                <span data-en="Train" data-zh="模型训练">Train</span>
+            </button>
+        </div>
+
+        <!-- ═══════════════ ANALYZE MODE ═══════════════ -->
+        <div id="analyze-mode">
+
         <!-- Step 1: Upload -->
         <section id="upload-section" class="card">
             <h2 data-en="1. Upload Signal Data" data-zh="1. 上传信号数据">1. Upload Signal Data</h2>
@@ -100,6 +115,55 @@
                 <button id="new-analysis-btn" class="btn primary" data-en="New Analysis" data-zh="新建分析">New Analysis</button>
             </div>
         </section>
+
+        </div><!-- end #analyze-mode -->
+
+        <!-- ═══════════════ TRAIN MODE ═══════════════ -->
+        <div id="train-mode" class="hidden">
+
+        <!-- Train Step 1: Upload Labeled Dataset -->
+        <section id="train-upload-section" class="card">
+            <h2 data-en="T1. Upload Labeled Dataset" data-zh="T1. 上传标注数据集">T1. Upload Labeled Dataset</h2>
+            <p class="section-hint" data-en="Upload a CSV file with a <code>label</code> column, or a ZIP archive with one folder per class." data-zh="上传含 <code>label</code> 列的 CSV 文件，或按类别分文件夹的 ZIP 压缩包。">
+                Upload a CSV file with a <code>label</code> column, or a ZIP archive with one folder per class.
+            </p>
+
+            <div id="train-drop-zone" class="drop-zone" onclick="Trainer.openFilePicker()">
+                <div class="drop-icon">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                </div>
+                <p data-en='Drag & drop your dataset here, or <span class="browse-link">browse</span>' data-zh='拖拽数据集到此处，或 <span class="browse-link">点击选择</span>'>
+                    Drag & drop your dataset here, or <span class="browse-link">browse</span>
+                </p>
+                <p class="hint" data-en="CSV (with label column) &nbsp;·&nbsp; ZIP (class_name/sample.csv) &nbsp;·&nbsp; Max 200 MB" data-zh="CSV (含 label 列) &nbsp;·&nbsp; ZIP (类别名/样本.csv) &nbsp;·&nbsp; 最大 200MB">
+                    CSV (with label column) &nbsp;·&nbsp; ZIP (class_name/sample.csv) &nbsp;·&nbsp; Max 200 MB
+                </p>
+                <input type="file" id="train-file-input" accept=".csv,.txt,.zip" hidden>
+            </div>
+
+            <div id="train-upload-status" class="status hidden"></div>
+        </section>
+
+        <!-- Train Step 2: Dataset Summary (shown after upload) -->
+        <section id="train-summary-section" class="card hidden">
+            <h2 data-en="T2. Dataset Summary" data-zh="T2. 数据集概览">T2. Dataset Summary</h2>
+            <div id="train-info-bar" class="info-bar"></div>
+            <div class="train-summary-grid">
+                <div id="train-class-chart" class="chart-container" style="height:280px;"></div>
+                <div id="train-class-table" class="train-class-table"></div>
+            </div>
+            <div class="export-bar" style="margin-top:1rem;">
+                <button id="train-reset-btn" class="btn secondary" data-en="Upload New Dataset" data-zh="重新上传">Upload New Dataset</button>
+                <button id="train-next-btn" class="btn primary" data-en="Configure Training →" data-zh="配置训练参数 →" disabled>Configure Training →</button>
+            </div>
+        </section>
+
+        </div><!-- end #train-mode -->
+
     </main>
 
     <footer>
@@ -109,6 +173,7 @@
     <script src="js/uploader.js?v=2"></script>
     <script src="js/visualizer.js?v=2"></script>
     <script src="js/results.js?v=2"></script>
-    <script src="js/app.js?v=2"></script>
+    <script src="js/trainer.js?v=1"></script>
+    <script src="js/app.js?v=3"></script>
 </body>
 </html>
