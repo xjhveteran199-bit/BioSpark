@@ -87,6 +87,8 @@ const Trainer = (() => {
     function _showSummary(data) {
         document.getElementById('train-summary-section').classList.remove('hidden');
         _renderInfoBar(data);
+        _renderSchemaReport(data);
+        _renderDataPreview(data);
         _renderClassChart(data);
         _renderClassTable(data);
         document.getElementById('train-next-btn').disabled = false;
@@ -108,6 +110,81 @@ const Trainer = (() => {
         bar.innerHTML = items.map(it =>
             `<div class="info-item"><span class="label">${it.label}:</span><span class="value">${it.value}</span></div>`
         ).join('');
+    }
+
+    function _renderSchemaReport(data) {
+        const el = document.getElementById('train-schema-report');
+        const isZh = App.lang === 'zh';
+
+        const labelCol = data.label_column || 'label';
+        const sigCols = data.signal_columns || [];
+        const nCh = data.n_channels || 1;
+        const chDetected = data.channel_detected;
+        const totalCols = data.total_signal_cols || sigCols.length;
+        const sigLen = data.signal_length;
+
+        // Column role tags
+        let tagsHTML = `<span class="schema-tag label">${labelCol} <span class="tag-role">${isZh ? '标签' : 'label'}</span></span>`;
+
+        if (chDetected && nCh > 1) {
+            const chMap = data.channel_map || {};
+            for (const prefix of Object.keys(chMap).sort()) {
+                const cols = chMap[prefix];
+                const first = cols[0], last = cols[cols.length - 1];
+                tagsHTML += `<span class="schema-tag channel">${first} ~ ${last} <span class="tag-role">${prefix}</span></span>`;
+            }
+        } else {
+            // Show first few signal columns
+            const show = sigCols.slice(0, 4);
+            for (const col of show) {
+                tagsHTML += `<span class="schema-tag signal">${col} <span class="tag-role">${isZh ? '信号' : 'signal'}</span></span>`;
+            }
+            if (sigCols.length > 4) {
+                tagsHTML += `<span class="schema-tag signal">... +${sigCols.length - 4} ${isZh ? '列' : 'more'}</span>`;
+            }
+        }
+
+        // Summary text
+        let summaryLines = [];
+        if (chDetected && nCh > 1) {
+            summaryLines.push(isZh
+                ? `<strong>${nCh}</strong> 个通道自动检测（列名前缀 ch{N}_），每通道 <strong>${sigLen}</strong> 个采样点`
+                : `<strong>${nCh}</strong> channels auto-detected (column prefix ch{N}_), <strong>${sigLen}</strong> samples per channel`);
+        } else {
+            summaryLines.push(isZh
+                ? `单通道信号，<strong>${totalCols}</strong> 个采样点（特征维度）`
+                : `Single-channel signal, <strong>${totalCols}</strong> sample points (feature dimension)`);
+        }
+        summaryLines.push(isZh
+            ? `标签列: <code>${labelCol}</code> → <strong>${data.class_names.length}</strong> 个类别，共 <strong>${data.total_samples}</strong> 个样本`
+            : `Label column: <code>${labelCol}</code> → <strong>${data.class_names.length}</strong> classes, <strong>${data.total_samples}</strong> total samples`);
+        summaryLines.push(isZh
+            ? `CNN 输入维度: <code>(batch, ${nCh}, ${sigLen})</code>`
+            : `CNN input shape: <code>(batch, ${nCh}, ${sigLen})</code>`);
+
+        el.innerHTML = `
+            <h4>${isZh ? '数据结构报告' : 'Data Schema Report'}</h4>
+            <div class="schema-cols">${tagsHTML}</div>
+            <div class="schema-summary-text">${summaryLines.join('<br>')}</div>
+        `;
+    }
+
+    function _renderDataPreview(data) {
+        const dp = data.data_preview;
+        if (!dp || !dp.rows || !dp.rows.length) {
+            document.getElementById('data-preview-details').style.display = 'none';
+            return;
+        }
+        document.getElementById('data-preview-details').style.display = '';
+        const cols = dp.columns;
+        const headerHTML = cols.map(c => `<th>${c}</th>`).join('');
+        const rowsHTML = dp.rows.map(row => {
+            const cells = cols.map(c => `<td>${row[c] ?? ''}</td>`).join('');
+            return `<tr>${cells}</tr>`;
+        }).join('');
+        document.getElementById('train-data-preview').innerHTML = `
+            <table><thead><tr>${headerHTML}</tr></thead><tbody>${rowsHTML}</tbody></table>
+        `;
     }
 
     function _renderClassChart(data) {

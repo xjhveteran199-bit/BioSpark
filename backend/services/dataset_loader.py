@@ -110,6 +110,19 @@ def _parse_labeled_csv(df: pd.DataFrame) -> dict:
 
     ch_info = _detect_channel_structure(sig_cols)
 
+    # Data preview: first 5 rows, limited columns for readability
+    preview_cols = sig_cols[:6] + (["..."] if len(sig_cols) > 6 else []) + [label_col]
+    data_preview_rows = []
+    for _, row in df.head(5).iterrows():
+        r = {}
+        for c in sig_cols[:6]:
+            v = row[c]
+            r[c] = round(float(v), 4) if pd.notna(v) else None
+        if len(sig_cols) > 6:
+            r["..."] = "..."
+        r[label_col] = str(row[label_col])
+        data_preview_rows.append(r)
+
     return {
         "format": "csv_labeled",
         "label_column": label_col,
@@ -125,6 +138,10 @@ def _parse_labeled_csv(df: pd.DataFrame) -> dict:
         "preview": {
             "values": preview_vals,
             "channel_name": sig_cols[0],
+        },
+        "data_preview": {
+            "columns": preview_cols,
+            "rows": data_preview_rows,
         },
     }
 

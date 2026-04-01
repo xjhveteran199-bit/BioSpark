@@ -146,12 +146,97 @@
             </div>
 
             <div id="train-upload-status" class="status hidden"></div>
+
+            <!-- Data Format Guide (collapsible) -->
+            <details class="format-guide" id="format-guide">
+                <summary data-en="Data Format Specification" data-zh="数据格式规范">Data Format Specification</summary>
+                <div class="format-guide-body">
+                    <h4 data-en="CSV Format (Recommended)" data-zh="CSV 格式（推荐）">CSV Format (Recommended)</h4>
+                    <p data-en="Each row = one sample. Must contain a <code>label</code> column (also accepts <code>class</code>, <code>target</code>, or <code>y</code>)." data-zh="每行 = 一个样本。必须包含 <code>label</code> 列（也接受 <code>class</code>、<code>target</code> 或 <code>y</code>）。">
+                        Each row = one sample. Must contain a <code>label</code> column.
+                    </p>
+
+                    <div class="format-example">
+                        <strong data-en="Single-channel (1D signal):" data-zh="单通道（一维信号）：">Single-channel:</strong>
+                        <pre>s1,   s2,   s3,   ..., s140, label
+0.12, 0.34, 0.56, ..., 0.78, Normal
+0.11, 0.45, 0.67, ..., 0.89, Arrhythmia</pre>
+                        <p class="hint" data-en="All numeric columns (excluding label/time) are treated as one continuous signal." data-zh="所有数值列（排除 label/time）被视为一段连续信号。">
+                            All numeric columns (excluding label/time) are treated as one continuous signal.
+                        </p>
+                    </div>
+
+                    <div class="format-example">
+                        <strong data-en="Multi-channel (e.g., 12-lead ECG, multi-electrode EEG):" data-zh="多通道（如12导联ECG、多电极EEG）：">Multi-channel:</strong>
+                        <pre>ch1_1, ch1_2, ..., ch1_70, ch2_1, ch2_2, ..., ch2_70, label
+0.12,  0.34,  ..., 0.56,  0.78,  0.90,  ..., 0.11,  Normal</pre>
+                        <p class="hint" data-en="Use <code>ch{N}_{sample}</code> naming to auto-detect channels. All channels must have equal length." data-zh="使用 <code>ch{N}_{序号}</code> 命名自动检测通道。所有通道长度必须相同。">
+                            Use <code>ch{N}_{sample}</code> naming. All channels must have equal length.
+                        </p>
+                    </div>
+
+                    <h4 data-en="ZIP Format" data-zh="ZIP 格式">ZIP Format</h4>
+                    <div class="format-example">
+                        <pre>dataset.zip/
+  Normal/
+    sample_001.csv
+    sample_002.csv
+  Arrhythmia/
+    sample_001.csv
+    sample_002.csv</pre>
+                        <p class="hint" data-en="Folder name = class label. Each CSV contains one sample's signal data." data-zh="文件夹名 = 类别标签。每个 CSV 包含一个样本的信号数据。">
+                            Folder name = class label. Each CSV = one sample.
+                        </p>
+                    </div>
+
+                    <h4 data-en="Column Name Rules" data-zh="列名规则">Column Name Rules</h4>
+                    <table class="format-rules-table">
+                        <thead><tr>
+                            <th data-en="Role" data-zh="角色">Role</th>
+                            <th data-en="Recognized Names" data-zh="识别的列名">Recognized Names</th>
+                            <th data-en="Behavior" data-zh="处理方式">Behavior</th>
+                        </tr></thead>
+                        <tbody>
+                            <tr>
+                                <td data-en="Label" data-zh="标签"><strong>Label</strong></td>
+                                <td><code>label</code>, <code>class</code>, <code>target</code>, <code>y</code></td>
+                                <td data-en="Used as classification target (required)" data-zh="用作分类目标（必需）">Classification target (required)</td>
+                            </tr>
+                            <tr>
+                                <td data-en="Time/Index" data-zh="时间/索引"><strong>Time</strong></td>
+                                <td><code>time</code>, <code>t</code>, <code>timestamp</code>, <code>index</code>, <code>ms</code>, <code>sec</code></td>
+                                <td data-en="Auto-excluded from signal data" data-zh="自动从信号数据中排除">Auto-excluded</td>
+                            </tr>
+                            <tr>
+                                <td data-en="Channel" data-zh="通道"><strong>Channel</strong></td>
+                                <td><code>ch1_1</code>, <code>ch2_1</code>, <code>channel1_1</code>, ...</td>
+                                <td data-en="Auto-grouped into multi-channel input" data-zh="自动分组为多通道输入">Auto-grouped into channels</td>
+                            </tr>
+                            <tr>
+                                <td data-en="Signal" data-zh="信号"><strong>Signal</strong></td>
+                                <td data-en="Any other numeric column" data-zh="其他所有数值列">Any other numeric column</td>
+                                <td data-en="Used as signal features for training" data-zh="用作训练信号特征">Signal features for CNN</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </details>
         </section>
 
         <!-- Train Step 2: Dataset Summary (shown after upload) -->
         <section id="train-summary-section" class="card hidden">
             <h2 data-en="T2. Dataset Summary" data-zh="T2. 数据集概览">T2. Dataset Summary</h2>
             <div id="train-info-bar" class="info-bar"></div>
+
+            <!-- Data Schema Report -->
+            <div id="train-schema-report" class="schema-report"></div>
+
+            <!-- Data Preview Table -->
+            <details class="data-preview-details" id="data-preview-details">
+                <summary data-en="Data Preview (first 5 rows)" data-zh="数据预览（前5行）">Data Preview (first 5 rows)</summary>
+                <div id="train-data-preview" class="data-preview-scroll"></div>
+            </details>
+
             <div class="train-summary-grid">
                 <div id="train-class-chart" class="chart-container" style="height:280px;"></div>
                 <div id="train-class-table" class="train-class-table"></div>
