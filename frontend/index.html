@@ -162,18 +162,73 @@
             </div>
         </section>
 
+        <!-- Train Step 3: Training Config + Live Dashboard -->
+        <section id="train-config-section" class="card hidden">
+            <h2 data-en="T3. Training Configuration" data-zh="T3. 训练配置">T3. Training Configuration</h2>
+            <div class="train-config-grid">
+                <label>
+                    <span data-en="Epochs" data-zh="训练轮数">Epochs</span>
+                    <input type="number" id="cfg-epochs" value="30" min="1" max="200">
+                </label>
+                <label>
+                    <span data-en="Learning Rate" data-zh="学习率">Learning Rate</span>
+                    <input type="number" id="cfg-lr" value="0.001" min="0.00001" max="1" step="0.0001">
+                </label>
+                <label>
+                    <span data-en="Batch Size" data-zh="批大小">Batch Size</span>
+                    <select id="cfg-batch">
+                        <option value="16">16</option>
+                        <option value="32">32</option>
+                        <option value="64" selected>64</option>
+                        <option value="128">128</option>
+                        <option value="256">256</option>
+                    </select>
+                </label>
+                <label>
+                    <span data-en="Val Split" data-zh="验证集比例">Val Split</span>
+                    <input type="number" id="cfg-val-split" value="0.2" min="0.05" max="0.5" step="0.05">
+                </label>
+            </div>
+            <div style="margin-top:1rem;display:flex;gap:0.75rem;">
+                <button id="train-start-btn" class="btn primary" data-en="Start Training" data-zh="开始训练">Start Training</button>
+                <button id="train-stop-btn" class="btn secondary hidden" data-en="Stop" data-zh="停止" disabled>Stop</button>
+            </div>
+            <div id="train-run-status" class="status hidden"></div>
+        </section>
+
+        <!-- Train Step 4: Live Training Dashboard -->
+        <section id="train-dashboard-section" class="card hidden">
+            <h2 data-en="T4. Training Progress" data-zh="T4. 训练进度">T4. Training Progress</h2>
+            <div id="train-progress-bar" class="train-progress-outer hidden">
+                <div class="train-progress-inner" id="train-progress-fill"></div>
+                <span class="train-progress-label" id="train-progress-label">0%</span>
+            </div>
+            <div class="train-charts-grid">
+                <div>
+                    <h3 data-en="Loss" data-zh="损失 (Loss)">Loss</h3>
+                    <div id="train-loss-chart" class="chart-container" style="height:280px;"></div>
+                </div>
+                <div>
+                    <h3 data-en="Accuracy" data-zh="准确率 (Accuracy)">Accuracy</h3>
+                    <div id="train-acc-chart" class="chart-container" style="height:280px;"></div>
+                </div>
+            </div>
+            <div id="train-epoch-log" class="train-epoch-log"></div>
+            <div id="train-complete-banner" class="status success hidden"></div>
+        </section>
+
         </div><!-- end #train-mode -->
 
     </main>
 
     <footer>
-        <p data-en="BioSpark v0.1 — Pre-trained DL models for ECG, EEG, EMG" data-zh="BioSpark v0.1 — ECG/EEG/EMG 预训练深度学习模型">BioSpark v0.1 — Pre-trained DL models for ECG, EEG, EMG</p>
+        <p data-en="BioSpark v0.2 — AI-powered biosignal analysis + training platform" data-zh="BioSpark v0.2 — AI 生物信号分析 + 训练平台">BioSpark v0.2 — AI-powered biosignal analysis + training platform</p>
     </footer>
 
     <script src="js/uploader.js?v=2"></script>
     <script src="js/visualizer.js?v=2"></script>
     <script src="js/results.js?v=2"></script>
-    <script src="js/trainer.js?v=1"></script>
+    <script src="js/trainer.js?v=2"></script>
     <script src="js/app.js?v=3"></script>
 </body>
 </html>

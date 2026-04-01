@@ -1,124 +1,94 @@
 /**
- * Trainer — Phase 1: Labeled dataset upload + summary visualization.
+ * Trainer — Phase 1 + Phase 2
  *
- * Handles the "Train" mode of BioSpark:
- *   1. Drag-and-drop / file picker for CSV or ZIP uploads
- *   2. POST to /api/train/upload
- *   3. Renders dataset summary: info bar + Plotly bar chart + class table
+ * Phase 1: Labeled dataset upload + summary visualization.
+ * Phase 2: Training config, start, WebSocket live streaming,
+ *          Plotly loss/accuracy charts in real-time.
  */
 
 const Trainer = (() => {
-    // State
+    // ── State ──
     let datasetId = null;
     let datasetSummary = null;
+    let jobId = null;
+    let ws = null;           // WebSocket connection
+    let totalEpochs = 30;
+    let history = [];        // [{epoch, train_loss, val_loss, train_acc, val_acc}]
 
-    // Colour palette for class bars
     const CLASS_COLORS = [
         '#2563eb', '#7c3aed', '#059669', '#d97706', '#dc2626',
         '#0891b2', '#65a30d', '#c026d3', '#ea580c', '#0f766e',
     ];
 
-    // -----------------------------------------------------------------------
+    // ───────────────────────────────────────────────────────────
     // Initialisation
-    // -----------------------------------------------------------------------
+    // ───────────────────────────────────────────────────────────
 
     function init() {
         const dropZone = document.getElementById('train-drop-zone');
         const fileInput = document.getElementById('train-file-input');
 
         // Drag-and-drop
-        dropZone.addEventListener('dragover', e => {
-            e.preventDefault();
-            dropZone.classList.add('dragover');
-        });
+        dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
         dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
         dropZone.addEventListener('drop', e => {
-            e.preventDefault();
-            dropZone.classList.remove('dragover');
-            const file = e.dataTransfer.files[0];
-            if (file) handleFile(file);
+            e.preventDefault(); dropZone.classList.remove('dragover');
+            if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
         });
-
-        // File picker
-        fileInput.addEventListener('change', () => {
-            if (fileInput.files[0]) handleFile(fileInput.files[0]);
-        });
+        fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); });
 
         // Buttons
         document.getElementById('train-reset-btn').addEventListener('click', resetTrainer);
-        document.getElementById('train-next-btn').addEventListener('click', () => {
-            // Phase 2 will attach here
-            alert('Phase 2 (Training Engine) — coming soon!');
-        });
+        document.getElementById('train-next-btn').addEventListener('click', _showConfigSection);
+        document.getElementById('train-start-btn').addEventListener('click', _startTraining);
 
-        // Re-bind browse link after i18n updates
         _bindBrowseLink();
     }
 
-    function openFilePicker() {
-        document.getElementById('train-file-input').click();
-    }
+    function openFilePicker() { document.getElementById('train-file-input').click(); }
 
     function _bindBrowseLink() {
         const link = document.querySelector('#train-drop-zone .browse-link');
-        if (link) {
-            link.onclick = e => {
-                e.stopPropagation();
-                document.getElementById('train-file-input').click();
-            };
-        }
+        if (link) link.onclick = e => { e.stopPropagation(); document.getElementById('train-file-input').click(); };
     }
 
-    // -----------------------------------------------------------------------
-    // File Upload
-    // -----------------------------------------------------------------------
+    // ───────────────────────────────────────────────────────────
+    // Phase 1 — File Upload
+    // ───────────────────────────────────────────────────────────
 
     async function handleFile(file) {
         const ext = file.name.split('.').pop().toLowerCase();
         if (!['csv', 'txt', 'zip'].includes(ext)) {
-            _setStatus('error', `Unsupported format ".${ext}". Use .csv or .zip`);
+            _setStatus('train-upload-status', 'error', `Unsupported format ".${ext}". Use .csv or .zip`);
             return;
         }
-
-        _setStatus('loading', `<span class="spinner"></span>Parsing dataset…`);
+        _setStatus('train-upload-status', 'loading', `<span class="spinner"></span>Parsing dataset…`);
 
         const form = new FormData();
         form.append('file', file);
 
         try {
-            const resp = await fetch(`${API_BASE}/train/upload`, {
-                method: 'POST',
-                body: form,
-            });
-
-            if (!resp.ok) {
-                const err = await resp.json();
-                throw new Error(err.detail || 'Upload failed');
-            }
-
+            const resp = await fetch(`${API_BASE}/train/upload`, { method: 'POST', body: form });
+            if (!resp.ok) { const err = await resp.json(); throw new Error(err.detail || 'Upload failed'); }
             const data = await resp.json();
             datasetId = data.dataset_id;
             datasetSummary = data;
-
-            _setStatus('success', `Dataset parsed: ${data.total_samples} samples, ${data.class_names.length} classes`);
+            _setStatus('train-upload-status', 'success', `Dataset parsed: ${data.total_samples} samples, ${data.class_names.length} classes`);
             _showSummary(data);
-
         } catch (err) {
-            _setStatus('error', `Error: ${err.message}`);
+            _setStatus('train-upload-status', 'error', `Error: ${err.message}`);
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Summary Rendering
-    // -----------------------------------------------------------------------
+    // ───────────────────────────────────────────────────────────
+    // Phase 1 — Summary Rendering
+    // ───────────────────────────────────────────────────────────
 
     function _showSummary(data) {
         document.getElementById('train-summary-section').classList.remove('hidden');
-
         _renderInfoBar(data);
         _renderClassChart(data);
         _renderClassTable(data);
-
         document.getElementById('train-next-btn').disabled = false;
         document.getElementById('train-summary-section').scrollIntoView({ behavior: 'smooth' });
     }
@@ -133,10 +103,7 @@ const Trainer = (() => {
             { label: 'Channels', value: data.n_channels },
         ];
         bar.innerHTML = items.map(it =>
-            `<div class="info-item">
-                <span class="label">${it.label}:</span>
-                <span class="value">${it.value}</span>
-             </div>`
+            `<div class="info-item"><span class="label">${it.label}:</span><span class="value">${it.value}</span></div>`
         ).join('');
     }
 
@@ -144,90 +111,227 @@ const Trainer = (() => {
         const { class_names, class_counts } = data;
         const counts = class_names.map(c => class_counts[c] ?? 0);
         const colors = class_names.map((_, i) => CLASS_COLORS[i % CLASS_COLORS.length]);
-
-        const trace = {
-            type: 'bar',
-            x: class_names,
-            y: counts,
-            marker: { color: colors },
-            text: counts.map(String),
-            textposition: 'outside',
+        Plotly.newPlot('train-class-chart', [{
+            type: 'bar', x: class_names, y: counts, marker: { color: colors },
+            text: counts.map(String), textposition: 'outside',
             hovertemplate: '<b>%{x}</b><br>Samples: %{y}<extra></extra>',
-        };
-
-        const layout = {
-            margin: { t: 20, r: 10, b: 60, l: 50 },
-            paper_bgcolor: 'transparent',
-            plot_bgcolor: 'transparent',
-            font: { size: 12, color: '#1e293b' },
-            xaxis: { title: 'Class', tickangle: class_names.length > 6 ? -35 : 0 },
-            yaxis: { title: 'Sample Count' },
-            bargap: 0.3,
-        };
-
-        Plotly.newPlot('train-class-chart', [trace], layout, { responsive: true, displayModeBar: false });
+        }], {
+            margin: { t: 20, r: 10, b: 60, l: 50 }, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+            font: { size: 12, color: '#1e293b' }, xaxis: { title: 'Class', tickangle: class_names.length > 6 ? -35 : 0 },
+            yaxis: { title: 'Sample Count' }, bargap: 0.3,
+        }, { responsive: true, displayModeBar: false });
     }
 
     function _renderClassTable(data) {
         const { class_names, class_counts, total_samples } = data;
         const colors = class_names.map((_, i) => CLASS_COLORS[i % CLASS_COLORS.length]);
-
         const rows = class_names.map((cls, i) => {
             const count = class_counts[cls] ?? 0;
             const pct = total_samples > 0 ? ((count / total_samples) * 100).toFixed(1) : '0.0';
-            return `
-                <tr>
-                    <td>
-                        <span class="class-dot" style="background:${colors[i]}"></span>
-                        ${cls}
-                    </td>
+            return `<tr><td><span class="class-dot" style="background:${colors[i]}"></span>${cls}</td>
                     <td>${count.toLocaleString()}</td>
-                    <td>
-                        <div class="confidence-bar">
-                            <div class="confidence-fill" style="width:${pct}%;background:${colors[i]}"></div>
-                        </div>
-                        <span style="font-size:0.8rem;color:var(--text-secondary)">${pct}%</span>
-                    </td>
-                </tr>`;
+                    <td><div class="confidence-bar"><div class="confidence-fill" style="width:${pct}%;background:${colors[i]}"></div></div>
+                        <span style="font-size:0.8rem;color:var(--text-secondary)">${pct}%</span></td></tr>`;
         }).join('');
-
         document.getElementById('train-class-table').innerHTML = `
-            <table class="train-table">
-                <thead>
-                    <tr>
-                        <th>Class</th>
-                        <th>Samples</th>
-                        <th>Distribution</th>
-                    </tr>
-                </thead>
-                <tbody>${rows}</tbody>
-            </table>`;
+            <table class="train-table"><thead><tr><th>Class</th><th>Samples</th><th>Distribution</th></tr></thead>
+            <tbody>${rows}</tbody></table>`;
     }
 
-    // -----------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------
+    // ───────────────────────────────────────────────────────────
+    // Phase 2 — Config Section
+    // ───────────────────────────────────────────────────────────
 
-    function _setStatus(type, html) {
-        const el = document.getElementById('train-upload-status');
+    function _showConfigSection() {
+        document.getElementById('train-config-section').classList.remove('hidden');
+        document.getElementById('train-config-section').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // ───────────────────────────────────────────────────────────
+    // Phase 2 — Start Training
+    // ───────────────────────────────────────────────────────────
+
+    async function _startTraining() {
+        if (!datasetId) return;
+
+        const epochs = parseInt(document.getElementById('cfg-epochs').value) || 30;
+        const lr = parseFloat(document.getElementById('cfg-lr').value) || 0.001;
+        const batchSize = parseInt(document.getElementById('cfg-batch').value) || 64;
+        const valSplit = parseFloat(document.getElementById('cfg-val-split').value) || 0.2;
+
+        totalEpochs = epochs;
+        history = [];
+
+        document.getElementById('train-start-btn').disabled = true;
+        _setStatus('train-run-status', 'loading', '<span class="spinner"></span>Starting training…');
+
+        try {
+            const resp = await fetch(`${API_BASE}/train/start`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    dataset_id: datasetId,
+                    epochs, learning_rate: lr, batch_size: batchSize, val_split: valSplit,
+                }),
+            });
+            if (!resp.ok) { const err = await resp.json(); throw new Error(err.detail || 'Failed to start'); }
+            const data = await resp.json();
+            jobId = data.job_id;
+
+            _setStatus('train-run-status', 'success', `Training started (job: ${jobId})`);
+            _showDashboard();
+            _connectWebSocket(jobId);
+        } catch (err) {
+            _setStatus('train-run-status', 'error', `Error: ${err.message}`);
+            document.getElementById('train-start-btn').disabled = false;
+        }
+    }
+
+    // ───────────────────────────────────────────────────────────
+    // Phase 2 — Dashboard + Charts
+    // ───────────────────────────────────────────────────────────
+
+    function _showDashboard() {
+        const sec = document.getElementById('train-dashboard-section');
+        sec.classList.remove('hidden');
+        document.getElementById('train-progress-bar').classList.remove('hidden');
+
+        // Init empty charts
+        const chartLayout = (yTitle) => ({
+            margin: { t: 10, r: 10, b: 40, l: 50 },
+            paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+            font: { size: 11, color: '#1e293b' },
+            xaxis: { title: 'Epoch' },
+            yaxis: { title: yTitle },
+            legend: { orientation: 'h', y: 1.12 },
+            showlegend: true,
+        });
+
+        Plotly.newPlot('train-loss-chart', [
+            { x: [], y: [], name: 'Train Loss', mode: 'lines+markers', line: { color: '#2563eb' } },
+            { x: [], y: [], name: 'Val Loss', mode: 'lines+markers', line: { color: '#dc2626', dash: 'dash' } },
+        ], chartLayout('Loss'), { responsive: true, displayModeBar: false });
+
+        Plotly.newPlot('train-acc-chart', [
+            { x: [], y: [], name: 'Train Acc', mode: 'lines+markers', line: { color: '#2563eb' } },
+            { x: [], y: [], name: 'Val Acc', mode: 'lines+markers', line: { color: '#dc2626', dash: 'dash' } },
+        ], chartLayout('Accuracy'), { responsive: true, displayModeBar: false });
+
+        document.getElementById('train-epoch-log').innerHTML = '';
+        document.getElementById('train-complete-banner').classList.add('hidden');
+
+        sec.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function _updateCharts(m) {
+        // Extend Loss chart
+        Plotly.extendTraces('train-loss-chart', {
+            x: [[m.epoch], [m.epoch]],
+            y: [[m.train_loss], [m.val_loss]],
+        }, [0, 1]);
+
+        // Extend Accuracy chart
+        Plotly.extendTraces('train-acc-chart', {
+            x: [[m.epoch], [m.epoch]],
+            y: [[m.train_acc], [m.val_acc]],
+        }, [0, 1]);
+
+        // Progress bar
+        const pct = Math.round((m.epoch / totalEpochs) * 100);
+        document.getElementById('train-progress-fill').style.width = pct + '%';
+        document.getElementById('train-progress-label').textContent = `${m.epoch}/${totalEpochs} (${pct}%)`;
+
+        // Epoch log line
+        const log = document.getElementById('train-epoch-log');
+        const line = document.createElement('div');
+        line.className = 'epoch-line';
+        line.textContent = `Epoch ${m.epoch}: loss=${m.train_loss.toFixed(4)} val_loss=${m.val_loss.toFixed(4)} acc=${(m.train_acc*100).toFixed(1)}% val_acc=${(m.val_acc*100).toFixed(1)}%`;
+        log.appendChild(line);
+        log.scrollTop = log.scrollHeight;
+    }
+
+    // ───────────────────────────────────────────────────────────
+    // Phase 2 — WebSocket
+    // ───────────────────────────────────────────────────────────
+
+    function _connectWebSocket(jobId) {
+        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const url = `${protocol}//${location.host}/api/train/ws/${jobId}`;
+        ws = new WebSocket(url);
+
+        ws.onmessage = (event) => {
+            const msg = JSON.parse(event.data);
+
+            if (msg.type === 'start') {
+                console.log('Training started:', msg);
+                totalEpochs = msg.total_epochs || totalEpochs;
+            }
+
+            if (msg.type === 'epoch') {
+                history.push(msg);
+                _updateCharts(msg);
+            }
+
+            if (msg.type === 'complete') {
+                _onTrainingComplete(msg);
+            }
+
+            if (msg.type === 'error') {
+                _setStatus('train-run-status', 'error', `Training error: ${msg.message}`);
+                document.getElementById('train-start-btn').disabled = false;
+            }
+        };
+
+        ws.onerror = () => {
+            _setStatus('train-run-status', 'error', 'WebSocket connection failed');
+            document.getElementById('train-start-btn').disabled = false;
+        };
+
+        ws.onclose = () => {
+            ws = null;
+        };
+    }
+
+    function _onTrainingComplete(msg) {
+        const banner = document.getElementById('train-complete-banner');
+        const bestAcc = (msg.best_val_acc * 100).toFixed(2);
+        banner.innerHTML = `Training complete! Best validation accuracy: <strong>${bestAcc}%</strong> over ${msg.total_epochs} epochs.`;
+        banner.classList.remove('hidden');
+
+        document.getElementById('train-progress-fill').style.width = '100%';
+        document.getElementById('train-progress-label').textContent = `${msg.total_epochs}/${msg.total_epochs} (100%)`;
+
+        document.getElementById('train-start-btn').disabled = false;
+        document.getElementById('train-start-btn').textContent =
+            App.lang === 'zh' ? '重新训练' : 'Re-train';
+    }
+
+    // ───────────────────────────────────────────────────────────
+    // Helpers
+    // ───────────────────────────────────────────────────────────
+
+    function _setStatus(id, type, html) {
+        const el = document.getElementById(id);
         el.className = `status ${type}`;
         el.innerHTML = html;
         el.classList.remove('hidden');
     }
 
     function resetTrainer() {
-        datasetId = null;
-        datasetSummary = null;
-
-        document.getElementById('train-summary-section').classList.add('hidden');
+        datasetId = null; datasetSummary = null; jobId = null; history = [];
+        if (ws) { ws.close(); ws = null; }
+        ['train-summary-section', 'train-config-section', 'train-dashboard-section'].forEach(id =>
+            document.getElementById(id).classList.add('hidden')
+        );
         document.getElementById('train-upload-status').classList.add('hidden');
+        document.getElementById('train-run-status')?.classList.add('hidden');
         document.getElementById('train-file-input').value = '';
         document.getElementById('train-next-btn').disabled = true;
-
+        document.getElementById('train-start-btn').disabled = false;
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    // Public API
+    // Public
     return { init, openFilePicker, handleFile, reset: resetTrainer, _bindBrowseLink };
 })();
 

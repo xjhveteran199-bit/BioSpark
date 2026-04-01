@@ -441,8 +441,90 @@ main {
     vertical-align: middle;
 }
 
+/* Training config grid */
+.train-config-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+}
+.train-config-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+.train-config-grid input,
+.train-config-grid select {
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    background: white;
+}
+
+/* Charts grid (loss + accuracy side by side) */
+.train-charts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+.train-charts-grid h3 {
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+/* Progress bar */
+.train-progress-outer {
+    position: relative;
+    height: 28px;
+    background: var(--bg);
+    border-radius: 14px;
+    overflow: hidden;
+    margin-bottom: 1rem;
+    border: 1px solid var(--border);
+}
+.train-progress-inner {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary), #7c3aed);
+    border-radius: 14px;
+    transition: width 0.4s ease;
+    width: 0%;
+}
+.train-progress-label {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+/* Epoch log */
+.train-epoch-log {
+    max-height: 150px;
+    overflow-y: auto;
+    background: var(--bg);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    font-family: "Cascadia Code", "Fira Code", monospace;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    line-height: 1.7;
+    margin-top: 0.5rem;
+}
+.epoch-line { white-space: nowrap; }
+
 @media (max-width: 768px) {
     .train-summary-grid { grid-template-columns: 1fr; }
+    .train-charts-grid { grid-template-columns: 1fr; }
+    .train-config-grid { grid-template-columns: 1fr 1fr; }
     .mode-tabs { width: 100%; }
     .mode-tab { flex: 1; justify-content: center; }
 }
