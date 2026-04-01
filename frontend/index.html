@@ -222,7 +222,10 @@
             <h2 data-en="T5. Post-Training Results" data-zh="T5. 训练结果可视化">T5. Post-Training Results</h2>
             <div class="train-charts-grid">
                 <div>
-                    <h3 data-en="Confusion Matrix" data-zh="混淆矩阵">Confusion Matrix</h3>
+                    <div style="display:flex;align-items:center;gap:0.75rem;">
+                        <h3 data-en="Confusion Matrix" data-zh="混淆矩阵" style="margin:0;">Confusion Matrix</h3>
+                        <button id="cm-toggle-btn" class="btn secondary" onclick="Trainer.toggleCMMode()" title="Switch to percentage" style="padding:4px 12px;font-size:0.8rem;">% →</button>
+                    </div>
                     <div id="train-cm-chart" class="chart-container" style="height:360px;"></div>
                 </div>
                 <div>

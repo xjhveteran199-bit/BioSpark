@@ -333,39 +333,15 @@ const Trainer = (() => {
         banner.innerHTML = banner.innerHTML.replace('Loading results…', '');
     }
 
+    let _cmData = null;   // cached for toggle
+    let _cmMode = 'count'; // 'count' | 'percent'
+
     function _renderConfusionMatrix(data) {
-        const { matrix, class_names, per_class, accuracy } = data;
-        const n = class_names.length;
+        _cmData = data;
+        _cmMode = 'count';
+        _drawCMChart();
 
-        // Build annotation text (counts)
-        const annotations = [];
-        for (let i = 0; i < n; i++) {
-            for (let j = 0; j < n; j++) {
-                annotations.push({
-                    x: class_names[j], y: class_names[i],
-                    text: String(matrix[i][j]),
-                    showarrow: false,
-                    font: { color: matrix[i][j] > 0 ? 'white' : '#999', size: 13 },
-                });
-            }
-        }
-
-        Plotly.newPlot('train-cm-chart', [{
-            z: matrix,
-            x: class_names,
-            y: class_names,
-            type: 'heatmap',
-            colorscale: [[0, '#f0f4ff'], [0.5, '#6366f1'], [1, '#1e1b4b']],
-            showscale: false,
-            hovertemplate: 'True: %{y}<br>Pred: %{x}<br>Count: %{z}<extra></extra>',
-        }], {
-            margin: { t: 20, r: 10, b: 60, l: 80 },
-            paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-            font: { size: 11, color: '#1e293b' },
-            xaxis: { title: 'Predicted', side: 'bottom' },
-            yaxis: { title: 'True', autorange: 'reversed' },
-            annotations,
-        }, { responsive: true, displayModeBar: false });
+        const { per_class, accuracy } = data;
 
         // Per-class metrics table
         const tableHTML = `
@@ -386,6 +362,63 @@ const Trainer = (() => {
                 </tbody>
             </table>`;
         document.getElementById('train-metrics-table').innerHTML = tableHTML;
+    }
+
+    function _drawCMChart() {
+        const { matrix, class_names } = _cmData;
+        const n = class_names.length;
+        const isPercent = _cmMode === 'percent';
+
+        // Compute row-normalized percentage matrix
+        const pctMatrix = matrix.map(row => {
+            const sum = row.reduce((a, b) => a + b, 0);
+            return row.map(v => sum > 0 ? (v / sum) * 100 : 0);
+        });
+
+        const zData = isPercent ? pctMatrix : matrix;
+        const annotations = [];
+        for (let i = 0; i < n; i++) {
+            for (let j = 0; j < n; j++) {
+                const val = zData[i][j];
+                const text = isPercent ? val.toFixed(1) + '%' : String(val);
+                annotations.push({
+                    x: class_names[j], y: class_names[i],
+                    text,
+                    showarrow: false,
+                    font: { color: val > 0 ? 'white' : '#999', size: 13 },
+                });
+            }
+        }
+
+        Plotly.newPlot('train-cm-chart', [{
+            z: zData,
+            x: class_names,
+            y: class_names,
+            type: 'heatmap',
+            colorscale: [[0, '#f0f4ff'], [0.5, '#6366f1'], [1, '#1e1b4b']],
+            showscale: false,
+            hovertemplate: isPercent
+                ? 'True: %{y}<br>Pred: %{x}<br>Ratio: %{z:.1f}%<extra></extra>'
+                : 'True: %{y}<br>Pred: %{x}<br>Count: %{z}<extra></extra>',
+        }], {
+            margin: { t: 20, r: 10, b: 60, l: 80 },
+            paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+            font: { size: 11, color: '#1e293b' },
+            xaxis: { title: 'Predicted', side: 'bottom' },
+            yaxis: { title: 'True', autorange: 'reversed' },
+            annotations,
+        }, { responsive: true, displayModeBar: false });
+    }
+
+    function toggleCMMode() {
+        if (!_cmData) return;
+        _cmMode = _cmMode === 'count' ? 'percent' : 'count';
+        _drawCMChart();
+        const btn = document.getElementById('cm-toggle-btn');
+        if (btn) {
+            btn.textContent = _cmMode === 'count' ? '% →' : '# →';
+            btn.title = _cmMode === 'count' ? 'Switch to percentage' : 'Switch to count';
+        }
     }
 
     function _renderTSNE(data) {
@@ -462,7 +495,7 @@ const Trainer = (() => {
 
     // Public
     return { init, openFilePicker, handleFile, reset: resetTrainer, _bindBrowseLink,
-             exportModel, exportHistory, exportCM, exportTSNE, exportReport };
+             exportModel, exportHistory, exportCM, exportTSNE, exportReport, toggleCMMode };
 })();
 
 window.Trainer = Trainer;
