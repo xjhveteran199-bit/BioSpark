@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+venv/
+.venv/
+env/
+
+# Model weights (large files — train locally)
+backend/models/*.onnx
+backend/models/*.pt
+!backend/models/README.md
+
+# Training data (download from PhysioNet)
+training/data/
+
+# Uploads
+uploads/
+*.tmp
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local

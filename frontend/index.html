@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BioSpark | 生物信号智能分析平台</title>
+    <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header>
+        <div class="header-top">
+            <button id="lang-toggle" class="lang-btn" onclick="App.toggleLang()">EN / 中文</button>
+        </div>
+        <div class="logo">
+            <svg width="36" height="36" viewBox="0 0 32 32" fill="none">
+                <rect width="32" height="32" rx="8" fill="#2563eb"/>
+                <path d="M4 16 L8 16 L10 10 L13 22 L16 6 L19 22 L22 10 L24 16 L28 16" stroke="white" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <h1 data-en="BioSpark" data-zh="生物信号智能分析平台">BioSpark</h1>
+        </div>
+        <p class="subtitle" data-en="Upload biosignal data &middot; AI-powered analysis &middot; Instant results" data-zh="上传数据 &middot; AI智能分析 &middot; 即时结果">Upload biosignal data &middot; AI-powered analysis &middot; Instant results</p>
+        <div class="header-badges">
+            <span class="badge">ECG 心电</span>
+            <span class="badge">EEG 脑电</span>
+            <span class="badge">EMG 肌电</span>
+        </div>
+    </header>
+
+    <main>
+        <!-- Step 1: Upload -->
+        <section id="upload-section" class="card">
+            <h2 data-en="1. Upload Signal Data" data-zh="1. 上传信号数据">1. Upload Signal Data</h2>
+            <div id="drop-zone" class="drop-zone">
+                <div class="drop-icon">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                </div>
+                <p data-en='Drag & drop your file here, or <span class="browse-link">browse</span>' data-zh='拖拽文件到此处，或 <span class="browse-link">点击选择</span>'>Drag & drop your file here, or <span class="browse-link">browse</span></p>
+                <p class="hint" data-en="Supported: CSV, EDF, MAT, TXT &middot; Max 100MB" data-zh="支持格式: CSV, EDF, MAT, TXT &middot; 最大 100MB">Supported: CSV, EDF, MAT, TXT &middot; Max 100MB</p>
+                <input type="file" id="file-input" accept=".csv,.edf,.mat,.txt,.bdf" hidden>
+            </div>
+            <div class="upload-options">
+                <label>
+                    <span data-en="Signal type:" data-zh="信号类型:">Signal type:</span>
+                    <select id="signal-type-select">
+                        <option value="" data-en="Auto-detect" data-zh="自动检测">Auto-detect</option>
+                        <option value="ecg" data-en="ECG (Electrocardiogram)" data-zh="ECG (心电图)">ECG (Electrocardiogram)</option>
+                        <option value="eeg" data-en="EEG (Electroencephalogram)" data-zh="EEG (脑电图)">EEG (Electroencephalogram)</option>
+                        <option value="emg" data-en="EMG (Electromyography)" data-zh="EMG (肌电图)">EMG (Electromyography)</option>
+                    </select>
+                </label>
+                <label>
+                    <span data-en="Sampling rate (Hz):" data-zh="采样率 (Hz):">Sampling rate (Hz):</span>
+                    <input type="number" id="sampling-rate-input" placeholder="Auto" min="1" max="10000" style="width:100px; padding:6px 10px; border:1px solid var(--border); border-radius:6px;">
+                </label>
+            </div>
+            <div id="upload-status" class="status hidden"></div>
+        </section>
+
+        <!-- Step 2: Signal Preview -->
+        <section id="preview-section" class="card hidden">
+            <h2 data-en="2. Signal Preview" data-zh="2. 信号预览">2. Signal Preview</h2>
+            <div id="signal-info" class="info-bar"></div>
+            <div id="signal-chart" class="chart-container"></div>
+            <div class="channel-controls">
+                <label><span data-en="Channel:" data-zh="通道:">Channel:</span> <select id="channel-select"></select></label>
+                <label style="margin-left:1rem;"><span data-en="View:" data-zh="视图:">View:</span>
+                    <select id="view-mode-select">
+                        <option value="time" data-en="Time Domain" data-zh="时域波形">Time Domain</option>
+                        <option value="fft" data-en="Frequency Spectrum" data-zh="频谱分析">Frequency Spectrum</option>
+                    </select>
+                </label>
+            </div>
+        </section>
+
+        <!-- Step 3: Analysis -->
+        <section id="analysis-section" class="card hidden">
+            <h2 data-en="3. Select Analysis Model" data-zh="3. 选择分析模型">3. Select Analysis Model</h2>
+            <div id="model-list" class="model-grid"></div>
+            <button id="analyze-btn" class="btn primary" disabled data-en="Analyze" data-zh="开始分析">Analyze</button>
+            <div id="analyze-status" class="status hidden"></div>
+        </section>
+
+        <!-- Step 4: Results -->
+        <section id="results-section" class="card hidden">
+            <h2 data-en="4. Results" data-zh="4. 分析结果">4. Results</h2>
+            <div id="demo-banner" class="demo-banner hidden"></div>
+            <div class="results-grid">
+                <div id="result-summary" class="result-panel"></div>
+                <div id="result-chart" class="result-panel"></div>
+            </div>
+            <div id="result-details" class="result-details"></div>
+            <div class="export-bar">
+                <button id="export-json-btn" class="btn secondary" data-en="Export JSON" data-zh="导出 JSON">Export JSON</button>
+                <button id="export-csv-btn" class="btn secondary" data-en="Export CSV" data-zh="导出 CSV">Export CSV</button>
+                <button id="new-analysis-btn" class="btn primary" data-en="New Analysis" data-zh="新建分析">New Analysis</button>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p data-en="BioSpark v0.1 — Pre-trained DL models for ECG, EEG, EMG" data-zh="BioSpark v0.1 — ECG/EEG/EMG 预训练深度学习模型">BioSpark v0.1 — Pre-trained DL models for ECG, EEG, EMG</p>
+    </footer>
+
+    <script src="js/uploader.js?v=2"></script>
+    <script src="js/visualizer.js?v=2"></script>
+    <script src="js/results.js?v=2"></script>
+    <script src="js/app.js?v=2"></script>
+</body>
+</html>
