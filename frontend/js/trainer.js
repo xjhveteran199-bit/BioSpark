@@ -441,8 +441,28 @@ const Trainer = (() => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
+    // ───────────────────────────────────────────────────────────
+    // Phase 4 — Export Functions
+    // ───────────────────────────────────────────────────────────
+
+    function _downloadURL(url) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = '';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    }
+
+    function exportModel()   { if (jobId) _downloadURL(`${API_BASE}/train/${jobId}/export/model`); }
+    function exportHistory() { if (jobId) _downloadURL(`${API_BASE}/train/${jobId}/export/history`); }
+    function exportCM()      { if (jobId) _downloadURL(`${API_BASE}/train/${jobId}/export/confusion_matrix_csv`); }
+    function exportTSNE()    { if (jobId) _downloadURL(`${API_BASE}/train/${jobId}/export/tsne_csv`); }
+    function exportReport()  { if (jobId) _downloadURL(`${API_BASE}/train/${jobId}/export/report`); }
+
     // Public
-    return { init, openFilePicker, handleFile, reset: resetTrainer, _bindBrowseLink };
+    return { init, openFilePicker, handleFile, reset: resetTrainer, _bindBrowseLink,
+             exportModel, exportHistory, exportCM, exportTSNE, exportReport };
 })();
 
 window.Trainer = Trainer;

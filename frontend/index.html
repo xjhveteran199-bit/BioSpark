@@ -231,6 +231,15 @@
                 </div>
             </div>
             <div id="train-metrics-table" style="margin-top:1rem;"></div>
+
+            <!-- Phase 4: Export buttons -->
+            <div class="export-bar" id="train-export-bar" style="margin-top:1.5rem;">
+                <button class="btn primary" onclick="Trainer.exportReport()" data-en="📊 HTML Report" data-zh="📊 HTML 报告">📊 HTML Report</button>
+                <button class="btn secondary" onclick="Trainer.exportModel()" data-en="💾 Model (.pt)" data-zh="💾 模型 (.pt)">💾 Model (.pt)</button>
+                <button class="btn secondary" onclick="Trainer.exportHistory()" data-en="📈 History (JSON)" data-zh="📈 历史 (JSON)">📈 History (JSON)</button>
+                <button class="btn secondary" onclick="Trainer.exportCM()" data-en="🔢 Confusion Matrix (CSV)" data-zh="🔢 混淆矩阵 (CSV)">🔢 Confusion Matrix (CSV)</button>
+                <button class="btn secondary" onclick="Trainer.exportTSNE()" data-en="🎯 t-SNE (CSV)" data-zh="🎯 t-SNE (CSV)">🎯 t-SNE (CSV)</button>
+            </div>
         </section>
 
         </div><!-- end #train-mode -->
