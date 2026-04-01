@@ -188,6 +188,11 @@
                     <span data-en="Val Split" data-zh="验证集比例">Val Split</span>
                     <input type="number" id="cfg-val-split" value="0.2" min="0.05" max="0.5" step="0.05">
                 </label>
+                <label>
+                    <span data-en="Channels" data-zh="通道数">Channels</span>
+                    <input type="number" id="cfg-channels" value="0" min="0" max="64">
+                    <small style="color:var(--text-secondary);font-size:0.75rem;" data-en="0 = auto-detect" data-zh="0 = 自动检测">0 = auto-detect</small>
+                </label>
             </div>
             <div style="margin-top:1rem;display:flex;gap:0.75rem;">
                 <button id="train-start-btn" class="btn primary" data-en="Start Training" data-zh="开始训练">Start Training</button>

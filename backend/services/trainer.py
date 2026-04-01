@@ -37,11 +37,12 @@ class Signal1DCNN(nn.Module):
     Also exposes an ``extract_features`` method for t-SNE (Phase 3).
     """
 
-    def __init__(self, n_classes: int):
+    def __init__(self, n_classes: int, in_channels: int = 1):
         super().__init__()
+        self.in_channels = in_channels
         self.features = nn.Sequential(
             # Block 1
-            nn.Conv1d(1, 32, kernel_size=7, padding=3),
+            nn.Conv1d(in_channels, 32, kernel_size=7, padding=3),
             nn.BatchNorm1d(32),
             nn.ReLU(),
             nn.MaxPool1d(2),
@@ -93,6 +94,7 @@ class TrainingJob:
         self.model: Optional[Signal1DCNN] = None
         self.val_X: Optional[np.ndarray] = None
         self.val_y: Optional[np.ndarray] = None
+        self.n_channels: int = 1              # resolved channel count
 
         # Async callbacks — called from the training thread with an
         # ``asyncio.run_coroutine_threadsafe`` call.
@@ -118,11 +120,40 @@ class TrainingJob:
 # Dataset → tensor conversion
 # ---------------------------------------------------------------------------
 
+def _resolve_n_channels(config: dict, summary: dict) -> int:
+    """Determine the effective number of input channels.
+
+    Priority: explicit config > auto-detect from column prefixes > 1.
+    """
+    user_ch = config.get("n_channels", 0)
+    if user_ch > 0:
+        return user_ch
+    if summary.get("channel_detected"):
+        return summary["n_channels"]
+    return 1
+
+
+def _reshape_for_channels(X: np.ndarray, n_channels: int) -> np.ndarray:
+    """Reshape flat (N, total) array to (N, n_channels, samples_per_channel)."""
+    N, total = X.shape
+    if n_channels <= 1:
+        return X.reshape(N, 1, total)
+    if total % n_channels != 0:
+        raise ValueError(
+            f"Cannot split {total} signal columns into {n_channels} channels evenly. "
+            f"{total} is not divisible by {n_channels}."
+        )
+    return X.reshape(N, n_channels, total // n_channels)
+
+
 def _dataset_to_tensors(file_bytes: bytes, filename: str, summary: dict):
     """Convert raw file bytes into (X, y, class_names) numpy arrays.
 
     For CSV:  each row = 1 sample; signal columns = feature vector.
     For ZIP:  each file = 1 sample; first signal column = time series.
+
+    When channel-prefixed columns are detected, columns are reordered so
+    that all samples of ch1 come first, then ch2, etc.
     """
     fmt = summary["format"]
     class_names = summary["class_names"]
@@ -133,7 +164,15 @@ def _dataset_to_tensors(file_bytes: bytes, filename: str, summary: dict):
         df = pd.read_csv(io.StringIO(text))
 
         label_col = summary.get("label_column", "label")
-        sig_cols = summary["signal_columns"]
+
+        # Reorder columns by channel if prefix detected
+        channel_map = summary.get("channel_map", {})
+        if channel_map:
+            sig_cols = []
+            for prefix in sorted(channel_map.keys()):
+                sig_cols.extend(channel_map[prefix])
+        else:
+            sig_cols = summary["signal_columns"]
 
         X = df[sig_cols].values.astype(np.float32)
         y = df[label_col].astype(str).map(label_to_idx).values.astype(np.int64)
@@ -199,12 +238,13 @@ def _run_training(job: TrainingJob, X: np.ndarray, y: np.ndarray):
         lr = cfg.get("learning_rate", 1e-3)
         batch_size = cfg.get("batch_size", 64)
         val_split = cfg.get("val_split", 0.2)
+        n_channels = job.n_channels
 
-        n_samples, signal_len = X.shape
+        n_samples = X.shape[0]
         n_classes = len(job.class_names)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        # Normalize per-sample
+        # Normalize per-sample (on flat array before reshape)
         X_mean = X.mean(axis=1, keepdims=True)
         X_std = X.std(axis=1, keepdims=True) + 1e-8
         X = (X - X_mean) / X_std
@@ -214,9 +254,13 @@ def _run_training(job: TrainingJob, X: np.ndarray, y: np.ndarray):
         split = max(1, int(n_samples * (1 - val_split)))
         train_idx, val_idx = perm[:split], perm[split:]
 
-        X_train = torch.FloatTensor(X[train_idx]).unsqueeze(1)  # (N, 1, L)
+        # Reshape to (N, C, L) — handles both single and multi-channel
+        X_3d = _reshape_for_channels(X, n_channels)
+        signal_len = X_3d.shape[2]
+
+        X_train = torch.FloatTensor(X_3d[train_idx])
         y_train = torch.LongTensor(y[train_idx])
-        X_val = torch.FloatTensor(X[val_idx]).unsqueeze(1)
+        X_val = torch.FloatTensor(X_3d[val_idx])
         y_val = torch.LongTensor(y[val_idx])
 
         train_loader = DataLoader(
@@ -229,12 +273,12 @@ def _run_training(job: TrainingJob, X: np.ndarray, y: np.ndarray):
             batch_size=batch_size * 2,
         )
 
-        # Store val data for Phase 3 (confusion matrix / t-SNE)
+        # Store val data (flat) for Phase 3 (confusion matrix / t-SNE)
         job.val_X = X[val_idx]
         job.val_y = y[val_idx]
 
         # Model
-        model = Signal1DCNN(n_classes=n_classes).to(device)
+        model = Signal1DCNN(n_classes=n_classes, in_channels=n_channels).to(device)
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -250,6 +294,7 @@ def _run_training(job: TrainingJob, X: np.ndarray, y: np.ndarray):
             "n_train": len(train_idx),
             "n_val": len(val_idx),
             "signal_length": signal_len,
+            "n_channels": n_channels,
             "n_classes": n_classes,
             "device": str(device),
         })
@@ -350,7 +395,17 @@ class TrainingManager:
         """Parse the dataset, create a job, and launch training in a thread."""
         X, y, class_names = _dataset_to_tensors(file_bytes, filename, summary)
 
+        # Resolve effective n_channels and validate
+        n_channels = _resolve_n_channels(config, summary)
+        total_cols = X.shape[1]
+        if n_channels > 1 and total_cols % n_channels != 0:
+            raise ValueError(
+                f"Cannot split {total_cols} signal columns into {n_channels} channels evenly. "
+                f"{total_cols} is not divisible by {n_channels}."
+            )
+
         job = TrainingJob(job_id=job_id, config=config, class_names=class_names)
+        job.n_channels = n_channels
         self.jobs[job_id] = job
 
         import threading
@@ -379,7 +434,7 @@ def compute_confusion_matrix(job: TrainingJob) -> dict:
     model = job.model
     model.eval()
 
-    X_val = torch.FloatTensor(job.val_X).unsqueeze(1)  # (N, 1, L)
+    X_val = torch.FloatTensor(_reshape_for_channels(job.val_X, job.n_channels))
     with torch.no_grad():
         preds = model(X_val).argmax(dim=1).numpy()
     y_true = job.val_y
@@ -422,7 +477,7 @@ def compute_tsne(job: TrainingJob, perplexity: float = 30.0) -> dict:
     model = job.model
     model.eval()
 
-    X_val = torch.FloatTensor(job.val_X).unsqueeze(1)
+    X_val = torch.FloatTensor(_reshape_for_channels(job.val_X, job.n_channels))
     with torch.no_grad():
         feats = model.extract_features(X_val).numpy()  # (N, 128)
 

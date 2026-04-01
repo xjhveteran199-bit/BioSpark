@@ -4,9 +4,14 @@ Dataset loader for labeled biosignal training data.
 Supported formats:
   - CSV with a 'label' (or 'class'/'target'/'y') column
   - ZIP archive with folder-per-class structure: class_name/sample.csv
+
+Multi-channel support:
+  - Auto-detects channel-prefixed columns (e.g. ch1_1, ch1_2, ch2_1, ch2_2)
+  - Falls back to single-channel if no prefix pattern found
 """
 
 import io
+import re
 import zipfile
 from pathlib import Path
 
@@ -19,6 +24,9 @@ _TIME_COL_NAMES = {"time", "t", "timestamp", "seconds", "sec", "ms", "index"}
 # Columns that are treated as labels
 _LABEL_COL_NAMES = {"label", "class", "target", "y"}
 
+# Regex for channel-prefixed column names: ch1_1, ch2_10, channel1_5, CH3_001, c1_1
+_CHANNEL_RE = re.compile(r"^(ch(?:annel)?[\s_-]?\d+)[\s_-](\d+)$", re.IGNORECASE)
+
 
 def _signal_cols(df: pd.DataFrame, exclude: list[str]) -> list[str]:
     """Return column names that are signal data (not time, not excluded)."""
@@ -26,6 +34,47 @@ def _signal_cols(df: pd.DataFrame, exclude: list[str]) -> list[str]:
         c for c in df.columns
         if c not in exclude and c.strip().lower() not in _TIME_COL_NAMES
     ]
+
+
+def _detect_channel_structure(sig_cols: list[str]) -> dict:
+    """Detect channel-prefixed columns and return channel structure info.
+
+    Returns dict with keys: detected, n_channels, samples_per_channel, channel_map.
+    channel_map is an ordered dict: {prefix: [col_names_in_order]}.
+    """
+    channel_map: dict[str, list[tuple[int, str]]] = {}
+
+    for col in sig_cols:
+        m = _CHANNEL_RE.match(col.strip())
+        if m is None:
+            return {"detected": False, "n_channels": 1, "samples_per_channel": len(sig_cols), "channel_map": {}}
+        prefix = m.group(1).lower()
+        idx = int(m.group(2))
+        channel_map.setdefault(prefix, []).append((idx, col))
+
+    if not channel_map:
+        return {"detected": False, "n_channels": 1, "samples_per_channel": len(sig_cols), "channel_map": {}}
+
+    # Sort each channel's columns by sample index
+    ordered_map: dict[str, list[str]] = {}
+    counts = set()
+    for prefix in sorted(channel_map.keys()):
+        entries = sorted(channel_map[prefix], key=lambda t: t[0])
+        ordered_map[prefix] = [col for _, col in entries]
+        counts.add(len(entries))
+
+    if len(counts) != 1:
+        return {"detected": False, "n_channels": 1, "samples_per_channel": len(sig_cols), "channel_map": {}}
+
+    n_channels = len(ordered_map)
+    samples_per_channel = counts.pop()
+
+    return {
+        "detected": True,
+        "n_channels": n_channels,
+        "samples_per_channel": samples_per_channel,
+        "channel_map": ordered_map,
+    }
 
 
 def _parse_labeled_csv(df: pd.DataFrame) -> dict:
@@ -59,6 +108,8 @@ def _parse_labeled_csv(df: pd.DataFrame) -> dict:
     signal_values = df[sig_cols].values
     preview_vals = signal_values[:500, 0].tolist() if len(signal_values) > 0 else []
 
+    ch_info = _detect_channel_structure(sig_cols)
+
     return {
         "format": "csv_labeled",
         "label_column": label_col,
@@ -66,8 +117,11 @@ def _parse_labeled_csv(df: pd.DataFrame) -> dict:
         "class_names": class_names,
         "class_counts": class_counts,
         "total_samples": len(df),
-        "signal_length": len(df),
-        "n_channels": len(sig_cols),
+        "signal_length": ch_info["samples_per_channel"],
+        "n_channels": ch_info["n_channels"],
+        "total_signal_cols": len(sig_cols),
+        "channel_detected": ch_info["detected"],
+        "channel_map": ch_info["channel_map"],
         "preview": {
             "values": preview_vals,
             "channel_name": sig_cols[0],
@@ -114,8 +168,7 @@ def _parse_zip_dataset(zip_bytes: bytes) -> dict:
             sample_df = pd.read_csv(f)
 
         sig_cols = _signal_cols(sample_df, exclude=[])
-        signal_length = len(sample_df)
-        n_channels = len(sig_cols)
+        ch_info = _detect_channel_structure(sig_cols)
 
         preview_vals = (
             sample_df[sig_cols[0]].values[:500].tolist() if sig_cols else []
@@ -127,8 +180,11 @@ def _parse_zip_dataset(zip_bytes: bytes) -> dict:
             "class_names": class_names,
             "class_counts": class_counts,
             "total_samples": total_samples,
-            "signal_length": signal_length,
-            "n_channels": n_channels,
+            "signal_length": ch_info["samples_per_channel"],
+            "n_channels": ch_info["n_channels"],
+            "total_signal_cols": len(sig_cols),
+            "channel_detected": ch_info["detected"],
+            "channel_map": ch_info["channel_map"],
             "preview": {
                 "values": preview_vals,
                 "channel_name": sig_cols[0] if sig_cols else "ch0",

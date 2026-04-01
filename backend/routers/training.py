@@ -93,6 +93,7 @@ class TrainStartRequest(BaseModel):
     learning_rate: float = Field(default=1e-3, gt=0, le=1.0)
     batch_size: int = Field(default=64, ge=4, le=512)
     val_split: float = Field(default=0.2, gt=0.0, lt=1.0)
+    n_channels: int = Field(default=0, ge=0, le=64, description="0=auto-detect, 1=single channel, >1=split evenly")
 
 
 @router.post("/train/start")
@@ -112,6 +113,7 @@ async def start_training(req: TrainStartRequest):
         "learning_rate": req.learning_rate,
         "batch_size": req.batch_size,
         "val_split": req.val_split,
+        "n_channels": req.n_channels,
     }
 
     job_id = str(uuid.uuid4())[:8]

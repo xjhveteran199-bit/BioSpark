@@ -95,12 +95,15 @@ const Trainer = (() => {
 
     function _renderInfoBar(data) {
         const bar = document.getElementById('train-info-bar');
+        const chLabel = data.channel_detected
+            ? `${data.n_channels} (auto-detected)`
+            : `${data.n_channels}`;
         const items = [
             { label: 'Format',   value: data.format === 'zip_folder' ? 'ZIP (folder-per-class)' : 'CSV (labeled)' },
             { label: 'Classes',  value: data.class_names.length },
             { label: 'Samples',  value: data.total_samples.toLocaleString() },
-            { label: 'Length',   value: `${data.signal_length} pts` },
-            { label: 'Channels', value: data.n_channels },
+            { label: 'Length',   value: `${data.signal_length} pts/ch` },
+            { label: 'Channels', value: chLabel },
         ];
         bar.innerHTML = items.map(it =>
             `<div class="info-item"><span class="label">${it.label}:</span><span class="value">${it.value}</span></div>`
@@ -144,6 +147,12 @@ const Trainer = (() => {
 
     function _showConfigSection() {
         document.getElementById('train-config-section').classList.remove('hidden');
+        // Pre-populate channels from detected dataset info
+        if (datasetSummary && datasetSummary.channel_detected) {
+            document.getElementById('cfg-channels').value = datasetSummary.n_channels;
+        } else {
+            document.getElementById('cfg-channels').value = 0;
+        }
         document.getElementById('train-config-section').scrollIntoView({ behavior: 'smooth' });
     }
 
@@ -158,6 +167,7 @@ const Trainer = (() => {
         const lr = parseFloat(document.getElementById('cfg-lr').value) || 0.001;
         const batchSize = parseInt(document.getElementById('cfg-batch').value) || 64;
         const valSplit = parseFloat(document.getElementById('cfg-val-split').value) || 0.2;
+        const nChannels = parseInt(document.getElementById('cfg-channels').value) || 0;
 
         totalEpochs = epochs;
         history = [];
@@ -172,6 +182,7 @@ const Trainer = (() => {
                 body: JSON.stringify({
                     dataset_id: datasetId,
                     epochs, learning_rate: lr, batch_size: batchSize, val_split: valSplit,
+                    n_channels: nChannels,
                 }),
             });
             if (!resp.ok) { const err = await resp.json(); throw new Error(err.detail || 'Failed to start'); }
