@@ -1,6 +1,9 @@
 /**
  * Main application controller with i18n support.
+ * Updated for Vercel deployment - uses stateless combined upload+analyze endpoint.
  */
+
+const API_BASE = window.location.origin + '/api';
 
 const App = {
     selectedModel: null,
@@ -118,7 +121,7 @@ const App = {
 
     // --- Analysis ---
     async runAnalysis() {
-        if (!Uploader.fileId || !this.selectedModel) return;
+        if (!Uploader.fileContent || !this.selectedModel) return;
 
         const status = document.getElementById('analyze-status');
         const btn = document.getElementById('analyze-btn');
@@ -129,17 +132,22 @@ const App = {
         status.innerHTML = `<span class="spinner"></span>${loadingMsg}`;
         status.classList.remove('hidden');
 
-        const channel = document.getElementById('channel-select').value || 0;
-
         try {
-            const resp = await fetch(
-                `${API_BASE}/analyze/${Uploader.fileId}?model_id=${this.selectedModel}&channel=${channel}`,
-                { method: 'POST' }
-            );
+            // Build form data with file + model_id for stateless Vercel API
+            const formData = new FormData();
+            // Create a File-like object from the stored content
+            const file = new File([Uploader.fileContent], Uploader.fileName, { type: 'application/octet-stream' });
+            formData.append('file', file);
+            formData.append('model_id', this.selectedModel);
+
+            const resp = await fetch(`${API_BASE}/upload`, {
+                method: 'POST',
+                body: formData,
+            });
 
             if (!resp.ok) {
-                const err = await resp.json();
-                throw new Error(err.detail || 'Analysis failed');
+                const err = await resp.json().catch(() => ({ error: 'Unknown error' }));
+                throw new Error(err.error || 'Analysis failed');
             }
 
             const result = await resp.json();
@@ -169,6 +177,8 @@ const App = {
 
         Uploader.fileId = null;
         Uploader.fileData = null;
+        Uploader.fileContent = null;
+        Uploader.fileName = null;
         this.selectedModel = null;
         document.getElementById('analyze-btn').disabled = true;
         document.getElementById('upload-status').classList.add('hidden');
