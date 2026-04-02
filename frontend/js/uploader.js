@@ -3,7 +3,7 @@
  * For Vercel deployment - stores file content in memory for stateless analysis.
  */
 
-const API_BASE = window.location.origin + '/api';
+const API_BASE = 'https://biospark-production.up.railway.app/api';
 
 const Uploader = {
     fileId: null,

@@ -3,7 +3,7 @@
  * Updated for Vercel deployment - uses stateless combined upload+analyze endpoint.
  */
 
-const API_BASE = window.location.origin + '/api';
+const API_BASE = 'https://biospark-production.up.railway.app/api';
 
 const App = {
     selectedModel: null,
