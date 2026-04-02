@@ -1,6 +1,5 @@
 /**
  * Main application controller with i18n support.
- * Updated for Vercel deployment - uses stateless combined upload+analyze endpoint.
  */
 
 const API_BASE = 'https://biospark-production.up.railway.app/api';
@@ -8,10 +7,12 @@ const API_BASE = 'https://biospark-production.up.railway.app/api';
 const App = {
     selectedModel: null,
     lang: 'en', // 'en' or 'zh'
+    mode: 'analyze', // 'analyze' | 'train'
 
     init() {
         Uploader.init();
         Visualizer.init();
+        Trainer.init();
         this.bindEvents();
         this.loadModels();
 
@@ -27,6 +28,18 @@ const App = {
         document.getElementById('export-json-btn').addEventListener('click', () => Results.exportJSON());
         document.getElementById('export-csv-btn').addEventListener('click', () => Results.exportCSV());
         document.getElementById('new-analysis-btn').addEventListener('click', () => this.reset());
+    },
+
+    // --- Mode Switch ---
+    switchMode(mode) {
+        this.mode = mode;
+        document.getElementById('analyze-mode').classList.toggle('hidden', mode !== 'analyze');
+        document.getElementById('train-mode').classList.toggle('hidden', mode !== 'train');
+        document.querySelectorAll('.mode-tab').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+        // Re-bind browse links after DOM toggle
+        if (mode === 'train') Trainer._bindBrowseLink();
     },
 
     // --- Language Toggle ---
@@ -121,7 +134,7 @@ const App = {
 
     // --- Analysis ---
     async runAnalysis() {
-        if (!Uploader.fileContent || !this.selectedModel) return;
+        if (!Uploader.fileId || !this.selectedModel) return;
 
         const status = document.getElementById('analyze-status');
         const btn = document.getElementById('analyze-btn');
@@ -132,22 +145,17 @@ const App = {
         status.innerHTML = `<span class="spinner"></span>${loadingMsg}`;
         status.classList.remove('hidden');
 
-        try {
-            // Build form data with file + model_id for stateless Vercel API
-            const formData = new FormData();
-            // Create a File-like object from the stored content
-            const file = new File([Uploader.fileContent], Uploader.fileName, { type: 'application/octet-stream' });
-            formData.append('file', file);
-            formData.append('model_id', this.selectedModel);
+        const channel = document.getElementById('channel-select').value || 0;
 
-            const resp = await fetch(`${API_BASE}/upload`, {
-                method: 'POST',
-                body: formData,
-            });
+        try {
+            const resp = await fetch(
+                `${API_BASE}/analyze/${Uploader.fileId}?model_id=${this.selectedModel}&channel=${channel}`,
+                { method: 'POST' }
+            );
 
             if (!resp.ok) {
-                const err = await resp.json().catch(() => ({ error: 'Unknown error' }));
-                throw new Error(err.error || 'Analysis failed');
+                const err = await resp.json();
+                throw new Error(err.detail || 'Analysis failed');
             }
 
             const result = await resp.json();
@@ -177,8 +185,6 @@ const App = {
 
         Uploader.fileId = null;
         Uploader.fileData = null;
-        Uploader.fileContent = null;
-        Uploader.fileName = null;
         this.selectedModel = null;
         document.getElementById('analyze-btn').disabled = true;
         document.getElementById('upload-status').classList.add('hidden');

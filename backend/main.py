@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pathlib import Path
 
-from backend.routers import upload, analysis, models as models_router
+from backend.routers import upload, analysis, models as models_router, training
 
 app = FastAPI(
     title="BioSpark",
@@ -28,6 +28,7 @@ def health():
 app.include_router(upload.router, prefix="/api", tags=["Upload"])
 app.include_router(analysis.router, prefix="/api", tags=["Analysis"])
 app.include_router(models_router.router, prefix="/api", tags=["Models"])
+app.include_router(training.router, prefix="/api", tags=["Training"])
 
 # --- Serve frontend static assets (css/js/assets) under /static ---
 frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
