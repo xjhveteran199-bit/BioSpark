@@ -8,8 +8,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python deps
+# First install requirements from PyPI, then torch from PyTorch index
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt torch --index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
 # Copy application code
 COPY backend/ ./backend/
