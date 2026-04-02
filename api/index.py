@@ -1,12 +1,13 @@
 """
 BioSpark API - Vercel Serverless Functions
-Combined upload + analyze endpoint (stateless - handles everything in one request)
+Single handler approach for Vercel Python runtime
 """
 
 import json
 import base64
 import numpy as np
 from pathlib import Path
+from urllib.parse import urlparse, parse_qs
 
 # Paths
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -22,38 +23,115 @@ MODEL_REGISTRY = {
         "input_length": 187,
         "sampling_rate": 360,
     },
+    "eeg_sleep": {
+        "file": "eeg_sleep_staging.onnx",
+        "signal_type": "eeg",
+        "description": "EEG Sleep Staging (5-class)",
+        "classes": ["Wake (W)", "N1", "N2", "N3", "REM"],
+        "input_length": 3000,
+        "sampling_rate": 100,
+    },
+    "emg_gesture": {
+        "file": "emg_gesture_cnn.onnx",
+        "signal_type": "emg",
+        "description": "EMG Gesture Recognition",
+        "classes": [f"Gesture {i}" for i in range(1, 53)],
+        "input_length": 400,
+        "sampling_rate": 1000,
+    },
 }
 
 # Cached ONNX session
 _onnx_session = None
 
 
-def POST(req):
-    """Handle upload + analyze in one request (stateless)."""
+def handler(req, context):
+    """Main handler for all API routes."""
     global _onnx_session
     
-    # Parse multipart form data
-    content_type = req.headers.get("content-type", "")
+    path = req.path if hasattr(req, 'path') else urlparse(req.url).path
+    method = req.method if hasattr(req, 'method') else 'GET'
     
-    if "multipart/form-data" in content_type:
-        return handle_multipart(req)
-    elif "application/json" in content_type:
-        return handle_json(req)
+    # Route based on path
+    if path == '/api/health' or path == '/api/health/':
+        return handle_health()
+    elif path == '/api/models' or path == '/api/models/':
+        return handle_models()
+    elif path == '/api/upload' or path == '/api/upload/':
+        if method == 'POST':
+            return handle_upload(req)
+        else:
+            return {"statusCode": 405, "body": json.dumps({"error": "Method not allowed"})}
     else:
-        return {"statusCode": 400, "body": json.dumps({"error": "Unsupported content type"})}
+        return {"statusCode": 404, "body": json.dumps({"error": f"Not found: {path}"})}
+
+
+def handle_health():
+    """GET /api/health"""
+    return {
+        "statusCode": 200,
+        "body": json.dumps({"status": "ok", "version": "0.1.0", "platform": "vercel"}),
+        "headers": {"Content-Type": "application/json"}
+    }
+
+
+def handle_models():
+    """GET /api/models"""
+    models = [
+        {
+            "id": model_id,
+            "signal_type": info["signal_type"],
+            "description": info["description"],
+            "classes": info["classes"],
+            "input_length": info["input_length"],
+        }
+        for model_id, info in MODEL_REGISTRY.items()
+    ]
+    return {
+        "statusCode": 200,
+        "body": json.dumps({"models": models}),
+        "headers": {"Content-Type": "application/json"}
+    }
+
+
+def handle_upload(req):
+    """POST /api/upload - Combined upload + analyze endpoint (stateless)."""
+    global _onnx_session
+    
+    content_type = req.headers.get("content-type", "") if hasattr(req.headers, "get") else ""
+    if hasattr(req, 'headers') and isinstance(req.headers, dict):
+        content_type = req.headers.get("Content-Type", "") or req.headers.get("content-type", "")
+    
+    try:
+        if "multipart/form-data" in content_type:
+            return handle_multipart(req)
+        elif "application/json" in content_type:
+            return handle_json(req)
+        else:
+            # Try to handle multipart anyway
+            try:
+                return handle_multipart(req)
+            except:
+                return {"statusCode": 400, "body": json.dumps({"error": "Unsupported content type"})}
+    except Exception as e:
+        import traceback
+        return {"statusCode": 500, "body": json.dumps({"error": str(e), "trace": traceback.format_exc()})}
 
 
 def handle_multipart(req):
     """Handle multipart file upload + form fields."""
-    import json
-    from urllib.parse import parse_qs
-    
-    body = req.body if isinstance(req.body, bytes) else req.body.encode()
-    content_type = req.headers.get("content-type", "")
-    
-    # Parse multipart manually (simplified - just need filename, file content, and model_id)
     try:
-        # Split by boundary
+        body = req.body
+        if isinstance(body, str):
+            body = body.encode()
+        elif body is None:
+            body = b""
+        
+        content_type = req.headers.get("Content-Type", "") if hasattr(req.headers, "get") else ""
+        if hasattr(req, 'headers') and isinstance(req.headers, dict):
+            content_type = req.headers.get("Content-Type", "") or ""
+        
+        # Parse boundary
         boundary_match = content_type.split("boundary=")
         if len(boundary_match) < 2:
             return {"statusCode": 400, "body": json.dumps({"error": "Missing boundary"})}
@@ -64,52 +142,45 @@ def handle_multipart(req):
         filename = None
         file_content = None
         model_id = "ecg_arrhythmia"
-        signal_type = None
         
         for part in parts:
+            if not part or part.strip() in (b"", b"\r\n"):
+                continue
+            
             if b"filename=" in part:
                 # File part
                 header_end = part.find(b"\r\n\r\n")
                 if header_end == -1:
                     continue
                 header = part[:header_end].decode("utf-8", errors="ignore")
-                # Extract filename
                 for line in header.split("\r\n"):
                     if "filename=" in line:
                         fname = line.split("filename=")[1].strip('"')
                         if fname:
                             filename = fname
                         break
-                file_content = part[header_end + 4:]
-                # Remove trailing \r\n
-                if file_content.endswith(b"\r\n"):
-                    file_content = file_content[:-2]
+                fc = part[header_end + 4:]
+                if fc.endswith(b"\r\n"):
+                    fc = fc[:-2]
+                file_content = fc
             elif b"name=\"model_id\"" in part:
                 header_end = part.find(b"\r\n\r\n")
                 if header_end != -1:
                     model_id = part[header_end + 4:].decode().strip()
-            elif b"name=\"signal_type\"" in part:
-                header_end = part.find(b"\r\n\r\n")
-                if header_end != -1:
-                    signal_type = part[header_end + 4:].decode().strip()
-                    if not signal_type:
-                        signal_type = None
         
         if not file_content:
             return {"statusCode": 400, "body": json.dumps({"error": "No file provided"})}
         
-        # Parse file based on extension
         ext = Path(filename or "unknown").suffix.lower()
         
         if ext == ".csv" or ext == ".txt":
             text_content = file_content.decode("utf-8", errors="ignore")
-            parsed = parse_csv(text_content, signal_type)
+            parsed = parse_csv(text_content, None)
         elif ext == ".mat":
-            parsed = parse_mat(file_content, signal_type)
+            parsed = parse_mat(file_content, None)
         else:
             return {"statusCode": 400, "body": json.dumps({"error": f"Unsupported format: {ext}"})}
         
-        # Run analysis
         result = run_analysis(parsed, model_id)
         result["filename"] = filename
         
@@ -122,12 +193,10 @@ def handle_multipart(req):
 
 def handle_json(req):
     """Handle JSON request with base64-encoded file content."""
-    import json
-    
     try:
         data = json.loads(req.body)
         filename = data.get("filename", "upload.csv")
-        file_content_b64 = data.get("content")  # base64 encoded
+        file_content_b64 = data.get("content")
         model_id = data.get("model_id", "ecg_arrhythmia")
         signal_type = data.get("signal_type")
         
@@ -156,16 +225,6 @@ def handle_json(req):
         return {"statusCode": 500, "body": json.dumps({"error": str(e), "trace": traceback.format_exc()})}
 
 
-def GET(req):
-    """Handle GET requests - serve analysis form or info."""
-    import json
-    return {
-        "statusCode": 200,
-        "body": json.dumps({"message": "BioSpark API - POST file + model_id to /api/upload to analyze"}),
-        "headers": {"Content-Type": "application/json"}
-    }
-
-
 # --- Parsing Functions ---
 
 def parse_csv(content: str, signal_type: str = None):
@@ -176,7 +235,6 @@ def parse_csv(content: str, signal_type: str = None):
     
     header = lines[0].lower()
     has_time = 'time' in header or 'sample' in header
-    
     data_lines = lines[1:]
     
     if has_time:
@@ -206,8 +264,7 @@ def parse_csv(content: str, signal_type: str = None):
             line = line.strip()
             if not line:
                 continue
-            parts = line.split(',')
-            for p in parts:
+            for p in line.split(','):
                 try:
                     values.append(float(p.strip()))
                 except ValueError:
@@ -217,7 +274,6 @@ def parse_csv(content: str, signal_type: str = None):
         signal = np.array(values, dtype=np.float32)
         sampling_rate = 360.0
     
-    # Auto-detect signal type
     if signal_type is None:
         if 250 <= sampling_rate <= 1000:
             signal_type = "ecg"
@@ -378,7 +434,6 @@ def run_analysis(parsed, model_id):
     model_info = MODEL_REGISTRY[model_id]
     target_sr = model_info["sampling_rate"]
     
-    # Preprocess
     preprocessed = preprocess_signal(
         parsed["data"],
         parsed["signal_type"],
@@ -390,7 +445,6 @@ def run_analysis(parsed, model_id):
     if not segments:
         raise ValueError("No segments extracted - signal may be too short")
     
-    # Pad/trim segments to match model input length
     target_len = model_info["input_length"]
     processed_segs = []
     for seg in segments:
@@ -403,35 +457,39 @@ def run_analysis(parsed, model_id):
             padded[:len(seg)] = seg
             processed_segs.append(padded)
     
-    # Load model and run inference
     model_path = MODEL_DIR / model_info["file"]
+    is_demo = False
     if model_path.exists():
-        import onnxruntime as ort
-        if _onnx_session is None:
-            _onnx_session = ort.InferenceSession(str(model_path))
-        session = _onnx_session
-        input_name = session.get_inputs()[0].name
-        output_name = session.get_outputs()[0].name
-        
-        predictions = []
-        for seg in processed_segs:
-            x = seg.astype(np.float32).reshape(1, 1, -1)
-            output = session.run([output_name], {input_name: x})[0]
-            probs = _softmax(output[0])
-            pred_idx = int(np.argmax(probs))
-            predictions.append({
-                "class": model_info["classes"][pred_idx],
-                "class_idx": pred_idx,
-                "confidence": float(probs[pred_idx]),
-                "probabilities": {model_info["classes"][i]: float(probs[i]) for i in range(len(model_info["classes"]))},
-            })
-        backend = "onnx"
+        try:
+            import onnxruntime as ort
+            if _onnx_session is None:
+                _onnx_session = ort.InferenceSession(str(model_path))
+            session = _onnx_session
+            input_name = session.get_inputs()[0].name
+            output_name = session.get_outputs()[0].name
+            
+            predictions = []
+            for seg in processed_segs:
+                x = seg.astype(np.float32).reshape(1, 1, -1)
+                output = session.run([output_name], {input_name: x})[0]
+                probs = _softmax(output[0])
+                pred_idx = int(np.argmax(probs))
+                predictions.append({
+                    "class": model_info["classes"][pred_idx],
+                    "class_idx": pred_idx,
+                    "confidence": float(probs[pred_idx]),
+                    "probabilities": {model_info["classes"][i]: float(probs[i]) for i in range(len(model_info["classes"]))},
+                })
+            backend = "onnx"
+        except Exception as e:
+            predictions = demo_predict(processed_segs, model_info["classes"])
+            backend = "demo"
+            is_demo = True
     else:
-        # Demo mode
         predictions = demo_predict(processed_segs, model_info["classes"])
         backend = "demo"
+        is_demo = True
     
-    # Build result
     class_counts = {}
     class_confidences = {}
     for pred in predictions:
@@ -447,7 +505,6 @@ def run_analysis(parsed, model_id):
     n_samples = parsed["data"].shape[1]
     duration_sec = n_samples / parsed["sampling_rate"]
     
-    # Downsample preview data
     max_preview = 5000
     if n_samples > max_preview:
         step = n_samples // max_preview
