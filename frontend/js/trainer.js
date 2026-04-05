@@ -16,8 +16,8 @@ const Trainer = (() => {
     let history = [];        // [{epoch, train_loss, val_loss, train_acc, val_acc}]
 
     const CLASS_COLORS = [
-        '#2563eb', '#7c3aed', '#059669', '#d97706', '#dc2626',
-        '#0891b2', '#65a30d', '#c026d3', '#ea580c', '#0f766e',
+        '#06b6d4', '#a78bfa', '#34d399', '#fbbf24', '#f87171',
+        '#22d3ee', '#84cc16', '#e879f9', '#fb923c', '#2dd4bf',
     ];
 
     // ───────────────────────────────────────────────────────────
@@ -197,8 +197,8 @@ const Trainer = (() => {
             hovertemplate: '<b>%{x}</b><br>Samples: %{y}<extra></extra>',
         }], {
             margin: { t: 20, r: 10, b: 60, l: 50 }, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-            font: { size: 12, color: '#1e293b' }, xaxis: { title: 'Class', tickangle: class_names.length > 6 ? -35 : 0 },
-            yaxis: { title: 'Sample Count' }, bargap: 0.3,
+            font: { size: 12, color: '#e2e8f0' }, xaxis: { title: 'Class', tickangle: class_names.length > 6 ? -35 : 0, gridcolor: 'rgba(148,163,184,0.15)' },
+            yaxis: { title: 'Sample Count', gridcolor: 'rgba(148,163,184,0.15)' }, bargap: 0.3,
         }, { responsive: true, displayModeBar: false });
     }
 
@@ -288,21 +288,21 @@ const Trainer = (() => {
         const chartLayout = (yTitle) => ({
             margin: { t: 10, r: 10, b: 40, l: 50 },
             paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-            font: { size: 11, color: '#1e293b' },
-            xaxis: { title: 'Epoch' },
-            yaxis: { title: yTitle },
+            font: { size: 11, color: '#e2e8f0' },
+            xaxis: { title: 'Epoch', gridcolor: 'rgba(148,163,184,0.15)' },
+            yaxis: { title: yTitle, gridcolor: 'rgba(148,163,184,0.15)' },
             legend: { orientation: 'h', y: 1.12 },
             showlegend: true,
         });
 
         Plotly.newPlot('train-loss-chart', [
-            { x: [], y: [], name: 'Train Loss', mode: 'lines+markers', line: { color: '#2563eb' } },
-            { x: [], y: [], name: 'Val Loss', mode: 'lines+markers', line: { color: '#dc2626', dash: 'dash' } },
+            { x: [], y: [], name: 'Train Loss', mode: 'lines+markers', line: { color: '#06b6d4' } },
+            { x: [], y: [], name: 'Val Loss', mode: 'lines+markers', line: { color: '#f472b6', dash: 'dash' } },
         ], chartLayout('Loss'), { responsive: true, displayModeBar: false });
 
         Plotly.newPlot('train-acc-chart', [
-            { x: [], y: [], name: 'Train Acc', mode: 'lines+markers', line: { color: '#2563eb' } },
-            { x: [], y: [], name: 'Val Acc', mode: 'lines+markers', line: { color: '#dc2626', dash: 'dash' } },
+            { x: [], y: [], name: 'Train Acc', mode: 'lines+markers', line: { color: '#06b6d4' } },
+            { x: [], y: [], name: 'Val Acc', mode: 'lines+markers', line: { color: '#f472b6', dash: 'dash' } },
         ], chartLayout('Accuracy'), { responsive: true, displayModeBar: false });
 
         document.getElementById('train-epoch-log').innerHTML = '';
@@ -483,7 +483,7 @@ const Trainer = (() => {
             x: class_names,
             y: class_names,
             type: 'heatmap',
-            colorscale: [[0, '#f0f4ff'], [0.5, '#6366f1'], [1, '#1e1b4b']],
+            colorscale: [[0, '#1e293b'], [0.5, '#6366f1'], [1, '#06b6d4']],
             showscale: false,
             hovertemplate: isPercent
                 ? 'True: %{y}<br>Pred: %{x}<br>Ratio: %{z:.1f}%<extra></extra>'
@@ -491,7 +491,7 @@ const Trainer = (() => {
         }], {
             margin: { t: 20, r: 10, b: 60, l: 80 },
             paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-            font: { size: 11, color: '#1e293b' },
+            font: { size: 11, color: '#e2e8f0' },
             xaxis: { title: 'Predicted', side: 'bottom' },
             yaxis: { title: 'True', autorange: 'reversed' },
             annotations,
@@ -529,9 +529,9 @@ const Trainer = (() => {
         Plotly.newPlot('train-tsne-chart', traces, {
             margin: { t: 10, r: 10, b: 40, l: 40 },
             paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-            font: { size: 11, color: '#1e293b' },
-            xaxis: { title: 't-SNE 1', zeroline: false },
-            yaxis: { title: 't-SNE 2', zeroline: false },
+            font: { size: 11, color: '#e2e8f0' },
+            xaxis: { title: 't-SNE 1', zeroline: false, gridcolor: 'rgba(148,163,184,0.15)' },
+            yaxis: { title: 't-SNE 2', zeroline: false, gridcolor: 'rgba(148,163,184,0.15)' },
             legend: { orientation: 'h', y: 1.12 },
             showlegend: true,
         }, { responsive: true, displayModeBar: false });
