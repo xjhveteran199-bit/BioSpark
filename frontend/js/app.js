@@ -2,7 +2,7 @@
  * Main application controller with i18n support.
  */
 
-const API_BASE = 'https://biospark-production.up.railway.app/api';
+const API_BASE = window.location.origin + '/api';
 
 const App = {
     selectedModel: null,
