@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BioSpark ONNX Inference Test</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #0f0f1a;
+            color: #e0e0e0;
+        }
+        h1 { color: #2563eb; text-align: center; }
+        .upload-zone {
+            border: 2px dashed #3b82f6;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            margin: 20px 0;
+            transition: all 0.3s;
+        }
+        .upload-zone:hover, .upload-zone.dragover {
+            background: rgba(59, 130, 246, 0.1);
+            border-color: #60a5fa;
+        }
+        .upload-zone input { display: none; }
+        .status {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        .status.loading { background: #1e3a5f; }
+        .status.success { background: #064e3b; }
+        .status.error { background: #7f1d1d; }
+        .spinner {
+            display: inline-block;
+            width: 16px; height: 16px;
+            border: 2px solid #fff;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #signal-preview { background: #1a1a2e; border-radius: 8px; padding: 15px; margin: 15px 0; }
+        #results { background: #1a1a2e; border-radius: 8px; padding: 20px; margin: 15px 0; }
+        .result-card {
+            background: #0f0f1a;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .class-bar {
+            height: 24px;
+            background: #2563eb;
+            border-radius: 4px;
+            margin: 5px 0;
+            position: relative;
+            min-width: 60px;
+        }
+        .class-bar span {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 12px;
+        }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 8px; text-align: left; border-bottom: 1px solid #333; }
+        th { color: #60a5fa; }
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-right: 5px;
+        }
+        .badge-ecg { background: #dc2626; }
+        .badge-demo { background: #f59e0b; color: #000; }
+        .badge-onnx { background: #10b981; }
+    </style>
+</head>
+<body>
+    <h1>🧠 BioSpark ONNX Inference Test</h1>
+    <p style="text-align:center; color:#888;">Browser-based ECG Arrhythmia Detection — No Backend Required</p>
+
+    <div class="upload-zone" id="drop-zone">
+        <p>📁 Drag & drop a CSV file or <span style="color:#60a5fa; cursor:pointer;">browse</span></p>
+        <p style="font-size:12px; color:#888;">Supports: CSV with time + signal columns, EDF, MAT</p>
+        <input type="file" id="file-input" accept=".csv,.txt,.edf,.mat">
+    </div>
+
+    <div id="upload-status" class="status" style="display:none;"></div>
+    <div id="signal-preview" style="display:none;">
+        <h3>📊 Signal Preview</h3>
+        <p><strong>Type:</strong> <span id="preview-type"></span> | <strong>Samples:</strong> <span id="preview-samples"></span> | <strong>SR:</strong> <span id="preview-sr"></span> Hz</p>
+        <canvas id="waveform" width="850" height="200"></canvas>
+    </div>
+
+    <div id="analyze-section" style="text-align:center; margin:20px 0; display:none;">
+        <button id="analyze-btn" style="padding:12px 32px; font-size:16px; background:#2563eb; color:#fff; border:none; border-radius:8px; cursor:pointer;">
+            🔍 Analyze with ONNX
+        </button>
+    </div>
+
+    <div id="results" style="display:none;">
+        <h3>📋 Analysis Results</h3>
+        <div id="result-meta"></div>
+        <hr style="border-color:#333;">
+        <h4>Class Distribution</h4>
+        <div id="class-distribution"></div>
+        <h4>Per-Segment Predictions</h4>
+        <div id="segment-predictions"></div>
+    </div>
+
+    <script src="js/inference.js"></script>
+    <script>
+        const inference = new ECGInference();
+        let signalData = null;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', async () => {
+            const status = document.getElementById('upload-status');
+            status.className = 'status loading';
+            status.innerHTML = '<span class="spinner"></span>Loading ONNX Runtime Web...';
+            status.style.display = 'block';
+
+            try {
+                // For Vercel, we try to load model from same origin
+                // In development, you'd point to the backend or a static .onnx file
+                const modelUrl = 'models/ecg_arrhythmia_cnn.onnx';
+                
+                // Try to load model - will fall back to demo mode if not available
+                try {
+                    await inference.init(modelUrl);
+                } catch(e) {
+                    console.log('ONNX model not available, using demo mode');
+                    inference.ready = true;
+                    inference.modelLoaded = false;
+                }
+
+                status.className = 'status success';
+                status.innerHTML = inference.modelLoaded 
+                    ? '✅ ONNX Runtime Web ready with trained model' 
+                    : '⚠️ ONNX Runtime Web ready (demo mode - no model file)';
+            } catch(e) {
+                status.className = 'status error';
+                status.textContent = 'Failed to load ONNX Runtime: ' + e.message;
+            }
+        });
+
+        // File upload handling
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+        });
+        fileInput.addEventListener('change', (e) => { if (e.target.files.length > 0) handleFile(e.target.files[0]); });
+
+        async function handleFile(file) {
+            const status = document.getElementById('upload-status');
+            status.className = 'status loading';
+            status.innerHTML = '<span class="spinner"></span>Parsing file...';
+            status.style.display = 'block';
+
+            try {
+                const text = await file.text();
+                signalData = parseCSV(text);
+                
+                document.getElementById('preview-type').textContent = signalData.type.toUpperCase();
+                document.getElementById('preview-samples').textContent = signalData.data[0].length;
+                document.getElementById('preview-sr').textContent = signalData.samplingRate;
+                document.getElementById('signal-preview').style.display = 'block';
+                document.getElementById('analyze-section').style.display = 'block';
+                
+                drawWaveform(signalData.data[0]);
+                
+                status.className = 'status success';
+                status.textContent = `✅ Parsed: ${signalData.type.toUpperCase()} | ${signalData.data[0].length} samples | ${signalData.samplingRate} Hz`;
+            } catch(e) {
+                status.className = 'status error';
+                status.textContent = 'Error parsing file: ' + e.message;
+            }
+        }
+
+        function parseCSV(text) {
+            const lines = text.trim().split('\n');
+            const header = lines[0].toLowerCase();
+            
+            // Simple CSV: expect time,signal1 or just signal values
+            let data;
+            if (header.includes('time') || header.includes('sample')) {
+                data = lines.slice(1).map(line => {
+                    const cols = line.split(',').map(v => parseFloat(v.trim()));
+                    return isNaN(cols[0]) ? cols[1] : cols[1]; // Return second column (signal)
+                }).filter(v => !isNaN(v));
+                // Estimate SR from time column
+                const times = lines.slice(1).map(line => {
+                    const cols = line.split(',').map(v => parseFloat(v.trim()));
+                    return cols[0];
+                }).filter(v => !isNaN(v));
+                const dt = times.length > 1 ? (times[times.length-1] - times[0]) / (times.length - 1) : 1/360;
+                var samplingRate = Math.round(1 / dt);
+            } else {
+                // Just values
+                data = lines.map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
+                var samplingRate = 360; // Default
+            }
+            
+            return { type: 'ecg', data: [data], samplingRate };
+        }
+
+        function drawWaveform(signal) {
+            const canvas = document.getElementById('waveform');
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width, h = canvas.height;
+            
+            ctx.fillStyle = '#1a1a2e';
+            ctx.fillRect(0, 0, w, h);
+            
+            // Downsample for display
+            const step = Math.max(1, Math.floor(signal.length / w));
+            const pts = [];
+            for (let i = 0; i < w; i++) {
+                const idx = Math.min(i * step, signal.length - 1);
+                pts.push(signal[idx]);
+            }
+            
+            const min = Math.min(...pts), max = Math.max(...pts);
+            const range = max - min || 1;
+            
+            ctx.strokeStyle = '#3b82f6';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for (let i = 0; i < pts.length; i++) {
+                const x = i;
+                const y = h - ((pts[i] - min) / range) * h * 0.9 - h * 0.05;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+        }
+
+        // Analyze button
+        document.getElementById('analyze-btn').addEventListener('click', async () => {
+            if (!signalData) return;
+            
+            const btn = document.getElementById('analyze-btn');
+            const status = document.getElementById('upload-status');
+            
+            btn.disabled = true;
+            btn.textContent = '⏳ Analyzing...';
+            status.className = 'status loading';
+            status.innerHTML = '<span class="spinner"></span>Running inference...';
+            
+            try {
+                const result = await inference.analyze(signalData.data, signalData.type);
+                displayResults(result);
+                
+                status.className = 'status success';
+                status.textContent = `✅ Analysis complete: ${result.summary.total_segments} segments`;
+            } catch(e) {
+                status.className = 'status error';
+                status.textContent = 'Error: ' + e.message;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🔍 Analyze with ONNX';
+            }
+        });
+
+        function displayResults(result) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.style.display = 'block';
+            
+            const meta = document.getElementById('result-meta');
+            meta.innerHTML = `
+                <span class="badge badge-${result.model_info.id.includes('ecg') ? 'ecg' : 'ecg'}">${result.model_info.id}</span>
+                ${result.demo_mode ? '<span class="badge badge-demo">DEMO MODE</span>' : '<span class="badge badge-onnx">ONNX</span>'}
+                <span>Dominant: <strong>${result.summary.dominant_class}</strong></span>
+                <span style="margin-left:15px;">Segments: ${result.summary.total_segments}</span>
+            `;
+            
+            const distDiv = document.getElementById('class-distribution');
+            distDiv.innerHTML = '';
+            const maxCount = Math.max(...Object.values(result.summary.class_distribution));
+            for (const [cls, count] of Object.entries(result.summary.class_distribution)) {
+                const pct = (count / result.summary.total_segments * 100).toFixed(1);
+                const width = (count / maxCount * 100).toFixed(1);
+                const conf = (result.summary.average_confidences[cls] * 100).toFixed(1);
+                distDiv.innerHTML += `
+                    <div style="margin:8px 0;">
+                        <div style="font-size:13px;">${cls} <span style="color:#888;">(${conf}% avg conf)</span></div>
+                        <div class="class-bar" style="width:${width}%;"><span>${count} (${pct}%)</span></div>
+                    </div>
+                `;
+            }
+            
+            const segDiv = document.getElementById('segment-predictions');
+            segDiv.innerHTML = '<table><tr><th>#</th><th>Class</th><th>Confidence</th></tr>';
+            result.predictions.slice(0, 20).forEach((p, i) => {
+                segDiv.innerHTML += `<tr><td>${i+1}</td><td>${p.class}</td><td>${(p.confidence*100).toFixed(1)}%</td></tr>`;
+            });
+            if (result.predictions.length > 20) {
+                segDiv.innerHTML += `<tr><td colspan="3" style="color:#888;">... and ${result.predictions.length - 20} more segments</td></tr>`;
+            }
+            segDiv.innerHTML += '</table>';
+            
+            resultsDiv.scrollIntoView({ behavior: 'smooth' });
+        }
+    </script>
+</body>
+</html>

@@ -2,6 +2,8 @@
  * Main application controller with i18n support.
  */
 
+const API_BASE = 'https://biospark-production.up.railway.app/api';
+
 const App = {
     selectedModel: null,
     lang: 'en', // 'en' or 'zh'
