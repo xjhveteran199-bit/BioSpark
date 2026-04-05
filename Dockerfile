@@ -10,8 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy requirements and install Python deps
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir scikit-learn
+    pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
 # Copy application code
 COPY backend/ ./backend/
