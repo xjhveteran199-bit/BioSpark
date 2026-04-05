@@ -4,7 +4,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pathlib import Path
 
-from backend.routers import upload, analysis, models as models_router, training as training_router
+from backend.routers import training as training_router
+
+# These routers depend on scipy/onnxruntime — import gracefully for serverless
+try:
+    from backend.routers import upload, analysis, models as models_router
+    _inference_available = True
+except ImportError:
+    _inference_available = False
 
 app = FastAPI(
     title="BioSpark",
@@ -25,9 +32,10 @@ app.add_middleware(
 def health():
     return {"status": "ok", "version": "0.1.0"}
 
-app.include_router(upload.router, prefix="/api", tags=["Upload"])
-app.include_router(analysis.router, prefix="/api", tags=["Analysis"])
-app.include_router(models_router.router, prefix="/api", tags=["Models"])
+if _inference_available:
+    app.include_router(upload.router, prefix="/api", tags=["Upload"])
+    app.include_router(analysis.router, prefix="/api", tags=["Analysis"])
+    app.include_router(models_router.router, prefix="/api", tags=["Models"])
 app.include_router(training_router.router, prefix="/api", tags=["Training"])
 
 # --- Serve frontend static assets (css/js/assets) under /static ---

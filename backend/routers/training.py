@@ -14,13 +14,21 @@ import json
 import uuid
 from pathlib import Path
 
-import torch
 from fastapi import APIRouter, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from backend.services.dataset_loader import load_labeled_dataset
-from backend.services.trainer import training_manager, compute_confusion_matrix, compute_tsne
+
+# Lazy-import trainer (depends on torch, which may not be available on serverless)
+_trainer_module = None
+
+def _get_trainer():
+    global _trainer_module
+    if _trainer_module is None:
+        from backend.services import trainer as _mod
+        _trainer_module = _mod
+    return _trainer_module
 
 router = APIRouter()
 
@@ -119,7 +127,7 @@ async def start_training(req: TrainStartRequest):
     job_id = str(uuid.uuid4())[:8]
 
     try:
-        training_manager.start(
+        _get_trainer().training_manager.start(
             job_id=job_id,
             file_bytes=entry["file_bytes"],
             filename=entry["filename"],
@@ -135,7 +143,7 @@ async def start_training(req: TrainStartRequest):
 @router.get("/train/{job_id}/status")
 async def get_training_status(job_id: str):
     """Poll-based fallback — returns current job status + full history."""
-    job = training_manager.get(job_id)
+    job = _get_trainer().training_manager.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Training job not found.")
     return {
@@ -165,7 +173,7 @@ async def training_websocket(ws: WebSocket, job_id: str):
     """
     await ws.accept()
 
-    job = training_manager.get(job_id)
+    job = _get_trainer().training_manager.get(job_id)
     if job is None:
         await ws.send_json({"type": "error", "message": "Job not found."})
         await ws.close()
@@ -223,13 +231,13 @@ async def get_confusion_matrix(job_id: str):
     Returns the matrix as a 2-D array, class names, per-class precision /
     recall / F1, and overall accuracy.
     """
-    job = training_manager.get(job_id)
+    job = _get_trainer().training_manager.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Training job not found.")
     if job.status != "completed":
         raise HTTPException(status_code=409, detail=f"Training not complete (status: {job.status}).")
     try:
-        return compute_confusion_matrix(job)
+        return _get_trainer().compute_confusion_matrix(job)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -242,13 +250,13 @@ async def get_tsne(job_id: str, perplexity: float = 30.0):
 
     Returns x/y coordinates + class labels for a Plotly scatter plot.
     """
-    job = training_manager.get(job_id)
+    job = _get_trainer().training_manager.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Training job not found.")
     if job.status != "completed":
         raise HTTPException(status_code=409, detail=f"Training not complete (status: {job.status}).")
     try:
-        return compute_tsne(job, perplexity=perplexity)
+        return _get_trainer().compute_tsne(job, perplexity=perplexity)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -258,7 +266,7 @@ async def get_tsne(job_id: str, perplexity: float = 30.0):
 # ---------------------------------------------------------------------------
 
 def _require_completed_job(job_id: str):
-    job = training_manager.get(job_id)
+    job = _get_trainer().training_manager.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Training job not found.")
     if job.status != "completed":
@@ -271,6 +279,7 @@ async def export_model(job_id: str):
     """Download the trained PyTorch model as a .pt file."""
     job = _require_completed_job(job_id)
     buf = io.BytesIO()
+    import torch
     torch.save(job.model.state_dict(), buf)
     buf.seek(0)
     return Response(
@@ -303,7 +312,7 @@ async def export_history(job_id: str):
 async def export_confusion_matrix_csv(job_id: str):
     """Download confusion matrix + per-class metrics as CSV."""
     job = _require_completed_job(job_id)
-    data = compute_confusion_matrix(job)
+    data = _get_trainer().compute_confusion_matrix(job)
 
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -333,7 +342,7 @@ async def export_confusion_matrix_csv(job_id: str):
 async def export_tsne_csv(job_id: str):
     """Download t-SNE coordinates as CSV (x, y, label)."""
     job = _require_completed_job(job_id)
-    data = compute_tsne(job)
+    data = _get_trainer().compute_tsne(job)
 
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -352,8 +361,8 @@ async def export_tsne_csv(job_id: str):
 async def export_report(job_id: str):
     """Generate a self-contained HTML report with all training results."""
     job = _require_completed_job(job_id)
-    cm_data = compute_confusion_matrix(job)
-    tsne_data = compute_tsne(job)
+    cm_data = _get_trainer().compute_confusion_matrix(job)
+    tsne_data = _get_trainer().compute_tsne(job)
 
     history_json = json.dumps(job.history, ensure_ascii=False)
     cm_json = json.dumps(cm_data, ensure_ascii=False)
