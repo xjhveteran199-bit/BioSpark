@@ -1,5 +1,5 @@
 # BioSpark — Claude Session Handoff
-> Last updated: 2026-04-01
+> Last updated: 2026-04-06 (v0.3)
 > Read this file at the START of every new Claude session for this project.
 
 ---
@@ -16,162 +16,147 @@ Open: http://localhost:8000
 ## GitHub
 https://github.com/xjhveteran199-bit/BioSpark
 
+## Live Deployments
+- Railway (full): https://efficient-integrity-production-736e.up.railway.app
+- Vercel (frontend): https://infallible-blackwell.vercel.app
+
 ---
 
-## What BioSpark Currently Does (v0.1 — COMPLETE)
+## What BioSpark Currently Does (v0.3)
+
+### 3 Pre-trained Models
+
+| Model | Signal | Classes | Accuracy | File |
+|-------|--------|---------|----------|------|
+| ECG Arrhythmia CNN | ECG | 5 (N/S/V/F/Q) | 94.1% | `ecg_arrhythmia_cnn.pt` |
+| EEG Sleep Staging CNN | EEG | 5 (W/N1/N2/N3/REM) | Training... | `eeg_sleep_staging.pt` |
+| EMG Gesture CNN | EMG | 53 (52 gestures + Rest) | 42.7% | `emg_gesture_cnn.pt` |
 
 ### Backend (FastAPI)
-- `POST /api/upload` — accepts CSV/EDF/MAT/TXT, parses signal, returns metadata + downsampled preview
-- `POST /api/analyze/{file_id}` — runs ECG arrhythmia inference, returns per-segment predictions
-- `GET /api/models` — lists available models
+- `POST /api/upload` — accepts CSV/EDF/MAT/TXT, parses signal, returns metadata + preview
+- `POST /api/analyze/{file_id}` — runs inference (supports multi-channel EMG)
+- `GET /api/models` — lists available models (ECG/EEG/EMG)
 - `GET /api/health` — health check
-
-### ML Model (COMPLETE)
-- **ECG Arrhythmia CNN** (`backend/models/ecg_arrhythmia_cnn.pt`)
-- Architecture: 3× Conv1d blocks + GlobalAvgPool + FC head, **44,293 params**
-- Trained on MIT-BIH (PhysioNet), 5-class AAMI: N / S / V / F / Q
-- **Test accuracy: 94.13%**
-- Fallback: demo mode (feature-based pseudo-predictions) when no `.pt` file found
+- `POST /api/train/upload` — upload labeled training dataset
+- `POST /api/train/start` — start custom CNN training job
+- `WebSocket /api/train/ws/{job_id}` — real-time training metrics
+- `GET /api/train/{job_id}/confusion_matrix` — post-training analysis
+- `GET /api/train/{job_id}/tsne` — feature visualization
+- `GET /api/train/{job_id}/export/*` — model/report/data export
 
 ### Frontend (Vanilla JS + Plotly.js)
-- 4-step SPA: Upload → Signal Preview → Model Select → Results
-- Drag-and-drop upload, signal type + sampling rate selection
-- Interactive Plotly chart: time domain + client-side FFT spectrum
-- Bilingual UI: EN / 中文 toggle
-- Results: dominant class, confidence bars, Plotly pie chart, per-segment table
+- 4-step inference SPA: Upload → Signal Preview → Model Select → Results
+- 5-phase training console: Upload → Configure → Train (live) → Analyze → Export
+- Dark sci-fi theme, bilingual (EN/CN), responsive layout
 
-### Current Export (results.js)
-- **Export JSON** (`biosignal_results.json`): full result object — segments, probabilities, summary, model info
-- **Export CSV** (`biosignal_results.csv`): columns `segment, class, confidence`
+### Model Architectures
 
----
+**ECGArrhythmiaCNN** — 3 conv blocks, 44K params, input (1, 187)
+**EEGSleepCNN** — 4 conv blocks, ~150K params, input (1, 3000)
+**EMGGestureCNN** — 4 conv blocks, 388K params, input (16, 80) multi-channel
 
-## NEXT DEVELOPMENT PHASE — Training Platform Pivot
-
-### User's Core Requirement
-> "用户导入数据 → CNN-1D开始训练 → 直接得到主要结果：Accuracy/Loss曲线、Confusion Matrix、t-SNE"
-
-This is a **major architecture pivot**: from inference-only → user-driven training platform.
-
----
-
-## 4-Phase Development Plan
-
-### Phase 1: Labeled Data Upload + Parsing
-**Goal**: User uploads their own labeled dataset → system parses it
-
-- Supported input formats:
-  - CSV with a `label` column (e.g., `time, signal, label`)
-  - ZIP folder: `class_A/001.csv`, `class_B/001.csv`, ...
-- New endpoint: `POST /api/train/upload` — accepts labeled data, validates, returns dataset summary
-- New service: `backend/services/dataset_loader.py`
-  - Auto-detect label column or folder structure
-  - Return: class names, sample counts per class, signal length stats
-- Frontend: new "Training" tab/section with dataset preview (class distribution bar chart)
-
-### Phase 2: Training Engine + Real-time Metrics via WebSocket
-**Goal**: CNN-1D trains on uploaded data, user watches live Loss/Acc curves
-
-- New endpoint: `WebSocket /api/train/ws/{job_id}` — streams training metrics
-- New service: `backend/services/trainer.py`
-  - Reuses `ECGArrhythmiaCNN` architecture (auto-adjusts output layer to N classes)
-  - Trains in background thread (asyncio + ThreadPoolExecutor)
-  - Emits JSON every epoch: `{"epoch": 5, "train_loss": 0.32, "val_loss": 0.41, "train_acc": 0.88, "val_acc": 0.84}`
-- New endpoint: `POST /api/train/start` — kicks off training job, returns `job_id`
-- Frontend: Live Plotly line charts for Loss and Accuracy (dual y-axis or 2 subplots)
-- Hyperparameter controls: epochs, learning rate, batch size, train/val split
-
-### Phase 3: Post-Training Visualizations
-**Goal**: After training completes, show Confusion Matrix + t-SNE
-
-- **Confusion Matrix**:
-  - Backend computes with sklearn on validation set
-  - Returns as 2D array → Plotly heatmap with class labels
-  - Endpoint: `GET /api/train/{job_id}/confusion_matrix`
-
-- **t-SNE**:
-  - Backend extracts penultimate-layer features (128-dim) for all val samples
-  - sklearn `TSNE(n_components=2)` → 2D coordinates + class labels
-  - Returns as `{"x": [...], "y": [...], "labels": [...], "colors": [...]}`
-  - Frontend: Plotly scatter with color-coded classes
-  - Endpoint: `GET /api/train/{job_id}/tsne`
-
-### Phase 4: Export + Report
-**Goal**: User can download everything
-
-- Download trained model: `GET /api/train/{job_id}/model` → `.pt` file
-- Export training history: JSON with full epoch-by-epoch metrics
-- Export confusion matrix: CSV
-- Export t-SNE: CSV with `x, y, label` columns
-- (Stretch) HTML report: single-file self-contained report with all charts embedded
-
----
-
-## Key Architectural Decisions Already Made
+### Key Architecture Decisions
 
 | Decision | Choice | Reason |
 |----------|--------|--------|
-| Model format | PyTorch `.pt` (not ONNX) | Python 3.14 incompatible with onnx package |
-| Static serving | Sub-path mount `/css`, `/js` | Catch-all `mount("/")` shadows API routes |
-| FFT | Client-side JS (Cooley-Tukey) | No server round-trip needed |
-| Cache busting | `?v=2` on script tags | Prevents stale JS in browser |
-| Training viz | WebSocket streaming | Real-time feedback without polling |
+| Model format | PyTorch `.pt` | Primary format for all models |
+| EMG input | Multi-channel (16ch) | NinaPro DB5 uses 16 sEMG channels |
+| EEG epochs | 30s @ 100Hz = 3000 samples | AASM standard for sleep staging |
+| EMG windows | 400ms @ 200Hz = 80 samples | Standard for gesture recognition |
+| Training viz | WebSocket streaming | Real-time feedback |
 
 ---
 
-## File Structure (Current)
+## File Structure
 ```
 BioSignal-Platform/
 ├── backend/
-│   ├── main.py                    # FastAPI app, route registration order matters
-│   ├── config.py                  # MODEL_REGISTRY, PREPROCESS_CONFIG
+│   ├── main.py                    # FastAPI app
+│   ├── config.py                  # MODEL_REGISTRY (3 models), PREPROCESS_CONFIG
 │   ├── routers/
-│   │   ├── upload.py
-│   │   ├── analysis.py
-│   │   └── models.py
+│   │   ├── upload.py              # File upload & parsing
+│   │   ├── analysis.py            # Model inference (multi-channel support)
+│   │   ├── models.py              # Model listing
+│   │   └── training.py            # Training pipeline API + WebSocket
 │   ├── services/
 │   │   ├── format_parser.py       # CSV/EDF/MAT parsing
-│   │   ├── preprocess.py          # bandpass filter, R-peak, segmentation
-│   │   └── predictor.py           # PyTorch inference + demo fallback
-│   ├── models/
-│   │   └── ecg_arrhythmia_cnn.pt  # Trained model (94.1% acc)
-│   └── tests/
+│   │   ├── preprocess.py          # ECG/EEG/EMG preprocessing + multi-ch EMG
+│   │   ├── predictor.py           # PyTorch/ONNX/Demo inference
+│   │   ├── trainer.py             # CNN training engine (Signal1DCNN)
+│   │   └── dataset_loader.py      # Labeled data parsing (CSV/ZIP)
+│   └── models/
+│       ├── ecg_arrhythmia_cnn.pt  # Trained ECG model (94.1%)
+│       ├── emg_gesture_cnn.pt     # Trained EMG model (42.7%, NinaPro DB5)
+│       └── README.md
 ├── frontend/
 │   ├── index.html
-│   ├── css/style.css
+│   ├── css/style.css              # Dark sci-fi theme
 │   └── js/
 │       ├── app.js                 # Lang toggle, section flow
-│       ├── uploader.js            # Drag-drop, upload API call
+│       ├── uploader.js            # Drag-drop upload
 │       ├── visualizer.js          # Plotly time/FFT charts
-│       └── results.js             # Results render + JSON/CSV export
+│       ├── results.js             # Results + export
+│       ├── trainer.js             # Training console UI
+│       └── inference.js           # Browser-side inference
 ├── training/
-│   └── train_ecg_arrhythmia.py   # MIT-BIH training script
-├── sample_data/                   # Demo CSV/EDF files
+│   ├── train_ecg_arrhythmia.py   # MIT-BIH training (94.1% acc)
+│   ├── train_eeg_sleep.py        # Sleep-EDF training (in progress)
+│   ├── train_emg_gesture.py      # NinaPro DB5 training (53-class, 42.7%)
+│   └── export_onnx.py            # PyTorch → ONNX converter
+├── sample_data/
 ├── requirements.txt
 ├── Dockerfile
-├── docker-compose.yml
-├── README.md
+├── PLAN.md                        # Architecture & roadmap
 └── CLAUDE_SESSION.md              # ← THIS FILE
+```
+
+---
+
+## Training Scripts
+
+### Train EMG Gesture Model (NinaPro DB5)
+```bash
+# Requires: training/EMG testing Data/s{1..10}/*.mat (extract from zips)
+python training/train_emg_gesture.py
+# Output: backend/models/emg_gesture_cnn.pt
+# 53 classes, 16ch input, ~42.7% accuracy on real data
+```
+
+### Train EEG Sleep Model (Sleep-EDF)
+```bash
+# Auto-downloads from PhysioNet via MNE (first run takes ~30min)
+python training/train_eeg_sleep.py
+# Output: backend/models/eeg_sleep_staging.pt
+# 5 classes (W/N1/N2/N3/REM), 30s epochs @ 100Hz
+```
+
+### Train ECG Model (MIT-BIH)
+```bash
+# Auto-downloads from PhysioNet via wfdb
+python training/train_ecg_arrhythmia.py
+# Output: backend/models/ecg_arrhythmia_cnn.pt
+# 5 classes (AAMI), 94.1% accuracy
 ```
 
 ---
 
 ## Where to Start Next Session
 
-**Start Phase 1**: Build the labeled data upload endpoint and dataset parser.
+**Priority 1:** Improve EMG model accuracy (currently 42.7%)
+- Try deeper architecture or attention mechanisms
+- Per-subject normalization
+- Data augmentation (time warp, noise, channel dropout)
 
-1. Create `backend/services/dataset_loader.py`
-2. Create `backend/routers/training.py` with `POST /api/train/upload`
-3. Add new "Train" section to `frontend/index.html`
-4. Register router in `backend/main.py`
+**Priority 2:** Complete EEG sleep staging model training
 
-Then continue Phase 2 → 3 → 4 in order.
+**Priority 3:** User authentication + database integration
 
 ---
 
 ## Known Issues / Watch Out For
 - **Route order**: Always register API routers BEFORE `app.mount()` static files in `main.py`
-- **Python 3.14**: Do NOT install `onnx` or `onnxruntime` — incompatible
-- **Browser cache**: Increment `?v=N` on script tags after JS changes
-- **Training in background**: Use `asyncio.get_event_loop().run_in_executor()` with ThreadPoolExecutor, NOT `asyncio.run()` inside async context
-- **WebSocket**: FastAPI supports WebSockets natively via `from fastapi import WebSocket`
+- **Model files are gitignored**: `.pt` files not in repo — train locally or download
+- **EMG multi-channel**: predictor.py handles both single-channel and 16-channel EMG input
+- **NinaPro data**: `.mat` files in `training/EMG testing Data/` (not committed, ~400MB)
+- **Sleep-EDF data**: Auto-downloaded by MNE to `training/data/sleep_edf/` (~2GB)
+- **Training cache**: `.npz` caches in `training/data/ninapro/` — delete to re-process raw data
