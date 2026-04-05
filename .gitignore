@@ -16,8 +16,15 @@ backend/models/*.onnx
 backend/models/*.pt
 !backend/models/README.md
 
-# Training data (download from PhysioNet)
+# Training data (large — download separately)
 training/data/
+training/EMG testing Data/
+
+# Claude Code workspace
+.claude/
+
+# Other projects
+Project 2/
 
 # Uploads
 uploads/

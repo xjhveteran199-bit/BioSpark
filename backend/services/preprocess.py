@@ -10,7 +10,8 @@ from typing import Optional
 
 
 def preprocess(data: np.ndarray, signal_type: str, sampling_rate: float,
-               target_sr: Optional[float] = None, channel_idx: int = 0) -> dict:
+               target_sr: Optional[float] = None, channel_idx: int = 0,
+               model_id: Optional[str] = None) -> dict:
     """Preprocess biosignal data for model inference.
 
     Args:
@@ -19,12 +20,23 @@ def preprocess(data: np.ndarray, signal_type: str, sampling_rate: float,
         sampling_rate: original sampling rate in Hz
         target_sr: target sampling rate for resampling (None = no resampling)
         channel_idx: which channel to process (default: first)
+        model_id: optional model ID to determine multi-channel requirements
 
     Returns:
         dict with:
             - segments: list of np.ndarray, each ready for model input
             - info: dict with preprocessing metadata
     """
+    # Check if model requires multi-channel input
+    from backend.config import MODEL_REGISTRY
+    in_channels = 1
+    if model_id and model_id in MODEL_REGISTRY:
+        in_channels = MODEL_REGISTRY[model_id].get("in_channels", 1)
+
+    if signal_type == "emg" and in_channels > 1:
+        # Multi-channel EMG: use all available channels
+        return _preprocess_emg_multichannel(data, sampling_rate, target_sr, in_channels)
+
     signal = data[channel_idx]
 
     if signal_type == "ecg":
@@ -175,7 +187,7 @@ def _preprocess_eeg(signal: np.ndarray, sr: float, target_sr: Optional[float]) -
 
 
 def _preprocess_emg(signal: np.ndarray, sr: float, target_sr: Optional[float]) -> dict:
-    """EMG preprocessing: filter → rectify → normalize → segment."""
+    """EMG preprocessing (single-channel): filter → rectify → normalize → segment."""
     # Bandpass filter 20-450 Hz
     highcut = min(450.0, sr * 0.49)  # Cannot exceed Nyquist
     filtered = _bandpass_filter(signal, 20.0, highcut, sr)
@@ -203,5 +215,69 @@ def _preprocess_emg(signal: np.ndarray, sr: float, target_sr: Optional[float]) -
             "n_segments": len(segments),
             "segment_length": seg_len,
             "effective_sr": effective_sr,
+        }
+    }
+
+
+def _preprocess_emg_multichannel(data: np.ndarray, sr: float,
+                                  target_sr: Optional[float],
+                                  required_channels: int) -> dict:
+    """EMG preprocessing (multi-channel): process all channels, return (channels, time) segments.
+
+    For the EMG gesture model which takes 16-channel input.
+    """
+    n_available = data.shape[0]
+    effective_sr = target_sr or sr
+    highcut = min(450.0, sr * 0.49)
+
+    # Process each channel
+    processed_channels = []
+    for ch in range(min(n_available, required_channels)):
+        signal = data[ch]
+        # Bandpass filter
+        filtered = _bandpass_filter(signal, 20.0, highcut, sr)
+        # Rectify
+        rectified = np.abs(filtered)
+        # Resample
+        if target_sr and abs(sr - target_sr) > 0.1:
+            rectified = _resample_signal(rectified, sr, target_sr)
+        # Normalize per-channel
+        normalized = _normalize(rectified)
+        processed_channels.append(normalized)
+
+    # Pad with zeros if fewer channels than required
+    if n_available < required_channels:
+        min_len = len(processed_channels[0]) if processed_channels else 0
+        for _ in range(required_channels - n_available):
+            processed_channels.append(np.zeros(min_len, dtype=np.float32))
+
+    # Stack: (n_channels, n_samples)
+    multichannel = np.array(processed_channels, dtype=np.float32)
+
+    # Segment into windows: each segment is (n_channels, seg_len)
+    seg_len = int(0.4 * effective_sr)  # 400ms
+    step = max(1, int(seg_len * 0.5))  # 50% overlap
+    n_samples = multichannel.shape[1]
+
+    segments = []
+    for start in range(0, n_samples - seg_len + 1, step):
+        seg = multichannel[:, start:start + seg_len]  # (channels, time)
+        segments.append(seg)
+
+    # Fallback: pad if no complete segments
+    if not segments and n_samples > 0:
+        padded = np.zeros((required_channels, seg_len), dtype=np.float32)
+        padded[:, :min(n_samples, seg_len)] = multichannel[:, :min(n_samples, seg_len)]
+        segments.append(padded)
+
+    return {
+        "segments": segments,
+        "info": {
+            "preprocessing": f"bandpass(20-{highcut:.0f}Hz) → rectify → resample → normalize → 400ms multi-ch segments",
+            "n_segments": len(segments),
+            "segment_length": seg_len,
+            "n_channels": required_channels,
+            "effective_sr": effective_sr,
+            "multichannel": True,
         }
     }

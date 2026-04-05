@@ -67,7 +67,8 @@ class Predictor:
                 model = EEGSleepCNN(n_classes=n_classes)
             elif arch == "EMGGestureCNN":
                 from training.train_emg_gesture import EMGGestureCNN
-                model = EMGGestureCNN(n_classes=n_classes)
+                in_channels = checkpoint.get("in_channels", 16)
+                model = EMGGestureCNN(n_classes=n_classes, in_channels=in_channels)
             else:
                 print(f"  Unknown architecture: {arch}, skipping PyTorch load")
                 return None
@@ -106,11 +107,17 @@ class Predictor:
 
         model_info = MODEL_REGISTRY[model_id]
         classes = model_info["classes"]
+        in_channels = model_info.get("in_channels", 1)
 
         predictions = []
         with torch.no_grad():
             for seg in segments:
-                x = torch.FloatTensor(seg).unsqueeze(0).unsqueeze(0)  # (1, 1, seg_len)
+                if in_channels > 1 and seg.ndim == 2:
+                    # Multi-channel input: seg is (channels, time)
+                    x = torch.FloatTensor(seg).unsqueeze(0)  # (1, channels, time)
+                else:
+                    # Single-channel input: seg is (time,)
+                    x = torch.FloatTensor(seg).unsqueeze(0).unsqueeze(0)  # (1, 1, time)
                 output = model(x)
                 probs = torch.softmax(output, dim=1).numpy()[0]
 
@@ -164,7 +171,9 @@ class Predictor:
 
         predictions = []
         for seg in segments:
-            features = _extract_simple_features(seg)
+            # Flatten multi-channel segments for feature extraction
+            flat_seg = seg.flatten() if seg.ndim > 1 else seg
+            features = _extract_simple_features(flat_seg)
             probs = _feature_to_probs(features, n_classes)
 
             pred_idx = int(np.argmax(probs))
@@ -177,9 +186,15 @@ class Predictor:
 
         result = _build_result(predictions, model_info)
         result["demo_mode"] = True
+        train_scripts = {
+            "ecg_arrhythmia": "training/train_ecg_arrhythmia.py",
+            "eeg_sleep": "training/train_eeg_sleep.py",
+            "emg_gesture": "training/train_emg_gesture.py",
+        }
+        script = train_scripts.get(model_id, "training/train_*.py")
         result["demo_note"] = (
-            "Running in DEMO mode — predictions are feature-based estimates, not from a trained model. "
-            "Run 'python training/train_ecg_arrhythmia.py' to train a real model."
+            f"Running in DEMO mode — predictions are feature-based estimates, not from a trained model. "
+            f"Run 'python {script}' to train a real model."
         )
         return result
 

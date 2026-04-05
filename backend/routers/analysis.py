@@ -54,6 +54,7 @@ def analyze_signal(
             sampling_rate=parsed["sampling_rate"],
             target_sr=model_info["sampling_rate"],
             channel_idx=channel,
+            model_id=model_id,
         )
     except Exception as e:
         raise HTTPException(500, f"Preprocessing failed: {str(e)}")
@@ -62,19 +63,32 @@ def analyze_signal(
         raise HTTPException(400, "No segments extracted after preprocessing. Signal may be too short.")
 
     # Ensure segments match model input length
+    import numpy as np
     target_len = model_info["input_length"]
+    is_multichannel = preprocessed["info"].get("multichannel", False)
     segments = []
+
     for seg in preprocessed["segments"]:
-        if len(seg) == target_len:
-            segments.append(seg)
-        elif len(seg) > target_len:
-            segments.append(seg[:target_len])
+        if is_multichannel:
+            # seg shape: (channels, time)
+            if seg.shape[-1] == target_len:
+                segments.append(seg)
+            elif seg.shape[-1] > target_len:
+                segments.append(seg[:, :target_len])
+            else:
+                padded = np.zeros((seg.shape[0], target_len), dtype=np.float32)
+                padded[:, :seg.shape[-1]] = seg
+                segments.append(padded)
         else:
-            # Pad short segments
-            import numpy as np
-            padded = np.zeros(target_len)
-            padded[:len(seg)] = seg
-            segments.append(padded)
+            # seg shape: (time,)
+            if len(seg) == target_len:
+                segments.append(seg)
+            elif len(seg) > target_len:
+                segments.append(seg[:target_len])
+            else:
+                padded = np.zeros(target_len, dtype=np.float32)
+                padded[:len(seg)] = seg
+                segments.append(padded)
 
     # Run prediction
     try:
