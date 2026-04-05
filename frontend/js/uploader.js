@@ -3,7 +3,7 @@
  * For Vercel deployment - stores file content in memory for stateless analysis.
  */
 
-const API_BASE = 'https://biospark-production.up.railway.app/api';
+// API_BASE is defined in app.js (loaded after this file)
 
 const Uploader = {
     fileId: null,
@@ -97,7 +97,7 @@ const Uploader = {
         const lines = text.trim().split('\n');
         if (!lines.length) throw new Error("Empty file");
 
-        const header = lines[0].toLower();
+        const header = lines[0].toLowerCase();
         const hasTime = header.includes('time') || header.includes('sample');
         const dataLines = lines.slice(1);
 
