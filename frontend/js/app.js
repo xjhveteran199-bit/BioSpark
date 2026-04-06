@@ -2,7 +2,7 @@
  * Main application controller with i18n support.
  */
 
-const API_BASE = 'https://biospark-production.up.railway.app/api';
+// API_BASE is defined in uploader.js (loaded first)
 
 const App = {
     selectedModel: null,
@@ -96,7 +96,7 @@ const App = {
         const models = [
             { id: 'ecg_arrhythmia', signal_type: 'ecg', description: 'ECG Arrhythmia Detection (5-class)', classes: ['Normal (N)', 'Supraventricular (S)', 'Ventricular (V)', 'Fusion (F)', 'Unknown (Q)'] },
             { id: 'eeg_sleep', signal_type: 'eeg', description: 'EEG Sleep Staging (5-class)', classes: ['Wake (W)', 'N1', 'N2', 'N3', 'REM'] },
-            { id: 'emg_gesture', signal_type: 'emg', description: 'EMG Gesture Recognition', classes: ['Gesture 1', 'Gesture 2', '...', 'Gesture 52'] },
+            { id: 'emg_gesture', signal_type: 'emg', description: 'EMG Gesture Recognition (53-class, NinaPro DB5)', classes: ['Rest', 'Index flexion', 'Index extension', '...53 classes'] },
         ];
         this.renderModels(models);
     },
