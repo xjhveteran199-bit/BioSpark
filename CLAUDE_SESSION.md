@@ -155,7 +155,7 @@ python training/train_ecg_arrhythmia.py
 
 ## Known Issues / Watch Out For
 - **Route order**: Always register API routers BEFORE `app.mount()` static files in `main.py`
-- **Model files are gitignored**: `.pt` files not in repo — train locally or download
+- **Model files are committed**: `.pt` files (~2.6MB total) are in the repo for Railway deployment
 - **EMG multi-channel**: predictor.py handles both single-channel and 16-channel EMG input
 - **NinaPro data**: `.mat` files in `training/EMG testing Data/` (not committed, ~400MB)
 - **Sleep-EDF data**: Auto-downloaded by MNE to `training/data/sleep_edf/` (~2GB)
