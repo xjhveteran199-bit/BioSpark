@@ -1,0 +1,28 @@
+# Git
+.git
+.gitignore
+
+# IDE / Sessions
+.claude/
+.vscode/
+*.code-workspace
+
+# Large data files
+training/EMG testing Data/
+training/*.npz
+training/__pycache__/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs (not needed at runtime)
+*.md
+Project 2/
