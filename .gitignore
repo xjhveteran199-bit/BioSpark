@@ -11,9 +11,8 @@ venv/
 .venv/
 env/
 
-# Model weights (large files — train locally)
+# Model weights (ONNX only — .pt files are committed for deployment)
 backend/models/*.onnx
-backend/models/*.pt
 !backend/models/README.md
 
 # Training data (large — download separately)
