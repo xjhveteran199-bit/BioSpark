@@ -17,7 +17,7 @@ except ImportError:
 app = FastAPI(
     title="BioSpark",
     description="Upload biosignal data (ECG/EEG/EMG), run pre-trained DL models, get predictions. Also supports user-driven CNN training on labeled datasets.",
-    version="0.2.0",
+    version="0.4.0",
 )
 
 app.add_middleware(
