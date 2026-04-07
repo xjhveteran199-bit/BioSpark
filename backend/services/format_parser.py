@@ -47,10 +47,25 @@ def _parse_csv(path: Path, signal_type: Optional[str]) -> dict:
     """
     df = pd.read_csv(path)
 
-    # Drop time columns if present
-    time_cols = [c for c in df.columns if c.lower() in ("time", "timestamp", "t", "sample", "index")]
+    # Extract sampling rate from time column before dropping it
+    time_cols = [c for c in df.columns if c.lower() in ("time", "timestamp", "t", "sample", "index", "sec", "ms")]
+    computed_sr = None
     if time_cols:
+        time_col = time_cols[0]
+        time_vals = pd.to_numeric(df[time_col], errors="coerce").dropna()
+        if len(time_vals) > 1:
+            dt = (time_vals.iloc[-1] - time_vals.iloc[0]) / (len(time_vals) - 1)
+            if dt > 0:
+                # If time looks like milliseconds (values > 1000), convert
+                if time_vals.iloc[-1] > 1000 and time_col.lower() in ("ms", "timestamp"):
+                    dt = dt / 1000.0
+                computed_sr = round(1.0 / dt, 1)
         df = df.drop(columns=time_cols)
+
+    # Drop label columns if present (for training data compatibility)
+    label_cols = [c for c in df.columns if c.lower() in ("label", "class", "target", "y")]
+    if label_cols:
+        df = df.drop(columns=label_cols)
 
     # Convert to numeric, drop non-numeric columns
     df = df.apply(pd.to_numeric, errors="coerce").dropna(axis=1, how="all")
@@ -61,8 +76,8 @@ def _parse_csv(path: Path, signal_type: Optional[str]) -> dict:
     data = df.values.T  # (n_channels, n_samples)
     channels = list(df.columns) if not all(isinstance(c, int) for c in df.columns) else [f"Ch{i+1}" for i in range(data.shape[0])]
 
-    # Guess sampling rate from data length and signal type
-    sampling_rate = _guess_sampling_rate(data.shape[1], signal_type)
+    # Use computed sampling rate from time column, or guess from signal type
+    sampling_rate = computed_sr or _guess_sampling_rate(data.shape[1], signal_type)
 
     return {
         "data": data.astype(np.float64),
@@ -166,7 +181,7 @@ def _guess_signal_type(channels: list[str], sampling_rate: float) -> str:
         return "ecg"
     if any(k in ch_str for k in ("eeg", "fp1", "fp2", "f3", "f4", "c3", "c4", "p3", "p4", "o1", "o2", "fz", "cz", "pz")):
         return "eeg"
-    if any(k in ch_str for k in ("emg", "muscle", "flexor", "extensor")):
+    if any(k in ch_str for k in ("emg", "semg", "muscle", "flexor", "extensor")):
         return "emg"
 
     # Guess from sampling rate
