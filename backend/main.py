@@ -5,6 +5,7 @@ from fastapi.responses import FileResponse
 from pathlib import Path
 
 from backend.routers import training as training_router
+from backend.routers import figures as figures_router
 
 # These routers depend on scipy/onnxruntime — import gracefully for serverless
 try:
@@ -37,6 +38,7 @@ if _inference_available:
     app.include_router(analysis.router, prefix="/api", tags=["Analysis"])
     app.include_router(models_router.router, prefix="/api", tags=["Models"])
 app.include_router(training_router.router, prefix="/api", tags=["Training"])
+app.include_router(figures_router.router, prefix="/api", tags=["Figures"])
 
 # --- Serve frontend static assets (css/js/assets) under /static ---
 frontend_dir = Path(__file__).resolve().parent.parent / "frontend"

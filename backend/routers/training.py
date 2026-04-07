@@ -102,6 +102,10 @@ class TrainStartRequest(BaseModel):
     batch_size: int = Field(default=64, ge=4, le=512)
     val_split: float = Field(default=0.2, gt=0.0, lt=1.0)
     n_channels: int = Field(default=0, ge=0, le=64, description="0=auto-detect, 1=single channel, >1=split evenly")
+    # Auto-optimization fields
+    auto_mode: bool = Field(default=False, description="Enable auto LR finder, architecture selection, and class weights")
+    early_stopping_patience: int = Field(default=10, ge=3, le=50, description="Epochs without improvement before early stop")
+    use_class_weights: bool = Field(default=True, description="Auto-compute class weights for imbalanced data")
 
 
 @router.post("/train/start")
@@ -122,6 +126,9 @@ async def start_training(req: TrainStartRequest):
         "batch_size": req.batch_size,
         "val_split": req.val_split,
         "n_channels": req.n_channels,
+        "auto_mode": req.auto_mode,
+        "early_stopping_patience": req.early_stopping_patience,
+        "use_class_weights": req.use_class_weights,
     }
 
     job_id = str(uuid.uuid4())[:8]

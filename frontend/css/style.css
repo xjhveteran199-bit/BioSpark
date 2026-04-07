@@ -770,3 +770,166 @@ footer {
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ═══════════════════════════════════════════════════════════
+   T6 — Publication-Quality Figures
+   ═══════════════════════════════════════════════════════════ */
+
+.fig-style-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.fig-style-group {
+    display: flex;
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.fig-style-btn {
+    padding: 6px 16px;
+    background: transparent;
+    color: var(--text-secondary);
+    border: none;
+    border-right: 1px solid var(--border);
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s;
+}
+.fig-style-btn:last-child { border-right: none; }
+.fig-style-btn:hover { background: var(--primary-light); color: var(--text); }
+.fig-style-btn.active {
+    background: var(--primary);
+    color: white;
+}
+
+.fig-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+@media (max-width: 900px) {
+    .fig-grid { grid-template-columns: 1fr; }
+}
+
+.fig-panel {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    padding: 1rem;
+    transition: border-color 0.2s;
+}
+.fig-panel:hover {
+    border-color: var(--primary);
+}
+
+.fig-panel-wide {
+    grid-column: 1 / -1;
+}
+
+.fig-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+}
+.fig-panel-header h4 {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--text);
+}
+
+.fig-download-btns {
+    display: flex;
+    gap: 4px;
+}
+
+.btn-sm {
+    padding: 3px 10px;
+    font-size: 0.75rem;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.btn-sm:hover {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+.fig-preview {
+    min-height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.5);
+    border-radius: 8px;
+    overflow: hidden;
+}
+.fig-preview img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
+}
+
+.fig-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    color: var(--text-secondary);
+}
+
+/* Auto-mode config bar */
+.auto-mode-bar {
+    margin-top: 1rem;
+    padding: 0.75rem 1rem;
+    background: var(--primary-light);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+}
+
+.auto-mode-options {
+    display: flex;
+    gap: 1.5rem;
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border);
+    flex-wrap: wrap;
+    align-items: center;
+}
+.auto-mode-options label span {
+    font-size: 0.85rem;
+}
+.auto-mode-options input[type="number"] {
+    width: 70px;
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    color: var(--text);
+    margin-left: 0.5rem;
+}
+
+.toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: var(--text);
+}
+.toggle-label input[type="checkbox"] {
+    accent-color: var(--primary);
+    width: 16px;
+    height: 16px;
+}

@@ -260,6 +260,9 @@ const Trainer = (() => {
                     dataset_id: datasetId,
                     epochs, learning_rate: lr, batch_size: batchSize, val_split: valSplit,
                     n_channels: nChannels,
+                    auto_mode: document.getElementById('cfg-auto-mode')?.checked || false,
+                    early_stopping_patience: parseInt(document.getElementById('cfg-early-stop')?.value) || 10,
+                    use_class_weights: document.getElementById('cfg-class-weights')?.checked !== false,
                 }),
             });
             if (!resp.ok) { const err = await resp.json(); throw new Error(err.detail || 'Failed to start'); }
@@ -419,6 +422,11 @@ const Trainer = (() => {
         // Update banner
         const banner = document.getElementById('train-complete-banner');
         banner.innerHTML = banner.innerHTML.replace('Loading results…', '');
+
+        // Phase 6: Load publication-quality figures
+        if (typeof Figures !== 'undefined') {
+            Figures.loadPublicationFigures(jobId);
+        }
     }
 
     let _cmData = null;   // cached for toggle
@@ -551,9 +559,10 @@ const Trainer = (() => {
     function resetTrainer() {
         datasetId = null; datasetSummary = null; jobId = null; history = [];
         if (ws) { ws.close(); ws = null; }
-        ['train-summary-section', 'train-config-section', 'train-dashboard-section', 'train-results-section'].forEach(id =>
-            document.getElementById(id).classList.add('hidden')
-        );
+        ['train-summary-section', 'train-config-section', 'train-dashboard-section', 'train-results-section', 'train-figures-section'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.classList.add('hidden');
+        });
         document.getElementById('train-upload-status').classList.add('hidden');
         document.getElementById('train-run-status')?.classList.add('hidden');
         document.getElementById('train-file-input').value = '';
@@ -581,9 +590,12 @@ const Trainer = (() => {
     function exportTSNE()    { if (jobId) _downloadURL(`${API_BASE}/train/${jobId}/export/tsne_csv`); }
     function exportReport()  { if (jobId) _downloadURL(`${API_BASE}/train/${jobId}/export/report`); }
 
+    function getJobId() { return jobId; }
+
     // Public
     return { init, openFilePicker, handleFile, reset: resetTrainer, _bindBrowseLink,
-             exportModel, exportHistory, exportCM, exportTSNE, exportReport, toggleCMMode };
+             exportModel, exportHistory, exportCM, exportTSNE, exportReport, toggleCMMode,
+             getJobId };
 })();
 
 window.Trainer = Trainer;

@@ -35,34 +35,55 @@ class Signal1DCNN(nn.Module):
 
     3 conv blocks → global-avg-pool → FC head.
     Also exposes an ``extract_features`` method for t-SNE (Phase 3).
+
+    When *arch_config* is provided (from ``auto_optimizer.select_architecture``),
+    the kernel sizes, channel widths, dropout rates, and FC hidden size are
+    taken from it.  Otherwise the original hardcoded defaults are used.
     """
 
-    def __init__(self, n_classes: int, in_channels: int = 1):
+    def __init__(self, n_classes: int, in_channels: int = 1, arch_config: dict | None = None):
         super().__init__()
         self.in_channels = in_channels
+
+        # Resolve architecture parameters
+        if arch_config is not None:
+            ks = arch_config["kernel_sizes"]       # list of 3 ints
+            ch = arch_config["channels"]           # list of 3 ints
+            d1 = arch_config["dropout1"]
+            d2 = arch_config["dropout2"]
+            fc_h = arch_config["fc_hidden"]
+        else:
+            ks = [7, 5, 3]
+            ch = [32, 64, 128]
+            d1, d2 = 0.3, 0.2
+            fc_h = 64
+
+        self.arch_config = arch_config
+        self._feat_dim = ch[2]  # dimension of feature vector for t-SNE
+
         self.features = nn.Sequential(
             # Block 1
-            nn.Conv1d(in_channels, 32, kernel_size=7, padding=3),
-            nn.BatchNorm1d(32),
+            nn.Conv1d(in_channels, ch[0], kernel_size=ks[0], padding=ks[0] // 2),
+            nn.BatchNorm1d(ch[0]),
             nn.ReLU(),
             nn.MaxPool1d(2),
             # Block 2
-            nn.Conv1d(32, 64, kernel_size=5, padding=2),
-            nn.BatchNorm1d(64),
+            nn.Conv1d(ch[0], ch[1], kernel_size=ks[1], padding=ks[1] // 2),
+            nn.BatchNorm1d(ch[1]),
             nn.ReLU(),
             nn.MaxPool1d(2),
             # Block 3
-            nn.Conv1d(64, 128, kernel_size=3, padding=1),
-            nn.BatchNorm1d(128),
+            nn.Conv1d(ch[1], ch[2], kernel_size=ks[2], padding=ks[2] // 2),
+            nn.BatchNorm1d(ch[2]),
             nn.ReLU(),
             nn.AdaptiveAvgPool1d(1),
         )
         self.classifier = nn.Sequential(
-            nn.Dropout(0.3),
-            nn.Linear(128, 64),
+            nn.Dropout(d1),
+            nn.Linear(ch[2], fc_h),
             nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(64, n_classes),
+            nn.Dropout(d2),
+            nn.Linear(fc_h, n_classes),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -71,9 +92,9 @@ class Signal1DCNN(nn.Module):
         return self.classifier(x)  # (B, n_classes)
 
     def extract_features(self, x: torch.Tensor) -> torch.Tensor:
-        """Return 128-d feature vector (penultimate layer) for t-SNE."""
+        """Return feature vector (penultimate layer) for t-SNE."""
         x = self.features(x)
-        return x.squeeze(-1)
+        return x.squeeze(-1)  # (B, feat_dim)
 
 
 # ---------------------------------------------------------------------------
@@ -277,9 +298,42 @@ def _run_training(job: TrainingJob, X: np.ndarray, y: np.ndarray):
         job.val_X = X[val_idx]
         job.val_y = y[val_idx]
 
+        # ----- Auto-optimization (optional) -----
+        auto_mode = cfg.get("auto_mode", False)
+        arch_config = None
+        suggested_lr = None
+        class_weights = None
+        early_stopper = None
+
+        if auto_mode:
+            from backend.services.auto_optimizer import (
+                select_architecture, compute_class_weights, lr_range_test,
+                EarlyStopping,
+            )
+            # Auto architecture
+            arch_config = select_architecture(n_classes, n_channels, signal_len, n_samples)
+            # Class weights
+            if cfg.get("use_class_weights", True):
+                class_weights = compute_class_weights(y[train_idx], n_classes)
+            # Early stopping
+            patience = cfg.get("early_stopping_patience", 10)
+            early_stopper = EarlyStopping(patience=patience)
+
         # Model
-        model = Signal1DCNN(n_classes=n_classes, in_channels=n_channels).to(device)
-        criterion = nn.CrossEntropyLoss()
+        model = Signal1DCNN(
+            n_classes=n_classes, in_channels=n_channels, arch_config=arch_config,
+        ).to(device)
+
+        if class_weights is not None:
+            criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
+        else:
+            criterion = nn.CrossEntropyLoss()
+
+        # LR finder (must run after model + criterion are ready)
+        if auto_mode:
+            suggested_lr = lr_range_test(model, train_loader, device, criterion)
+            lr = suggested_lr
+
         optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, patience=5, factor=0.5, min_lr=1e-6,
@@ -288,7 +342,7 @@ def _run_training(job: TrainingJob, X: np.ndarray, y: np.ndarray):
         best_val_acc = 0.0
         best_state = None
 
-        job._emit({
+        start_payload = {
             "type": "start",
             "total_epochs": epochs,
             "n_train": len(train_idx),
@@ -297,8 +351,15 @@ def _run_training(job: TrainingJob, X: np.ndarray, y: np.ndarray):
             "n_channels": n_channels,
             "n_classes": n_classes,
             "device": str(device),
-        })
+        }
+        if auto_mode:
+            start_payload["auto_mode"] = True
+            start_payload["suggested_lr"] = suggested_lr
+            if arch_config:
+                start_payload["arch_config"] = arch_config
+        job._emit(start_payload)
 
+        actual_epochs = epochs
         for epoch in range(1, epochs + 1):
             t0 = time.time()
 
@@ -355,6 +416,15 @@ def _run_training(job: TrainingJob, X: np.ndarray, y: np.ndarray):
             job.history.append(metrics)
             job._emit(metrics)
 
+            # Early stopping check
+            if early_stopper is not None:
+                if early_stopper.step(val_loss, model):
+                    actual_epochs = epoch
+                    # Use the best state from early stopper
+                    if early_stopper.best_state is not None:
+                        best_state = early_stopper.best_state
+                    break
+
         # ---- done ----
         job.best_val_acc = best_val_acc
         if best_state:
@@ -365,7 +435,8 @@ def _run_training(job: TrainingJob, X: np.ndarray, y: np.ndarray):
         job._emit({
             "type": "complete",
             "best_val_acc": round(best_val_acc, 5),
-            "total_epochs": epochs,
+            "total_epochs": actual_epochs,
+            "early_stopped": early_stopper is not None and early_stopper.should_stop,
         })
 
     except Exception as exc:
