@@ -1,6 +1,6 @@
 # BioSpark 项目研发报告
 
-> **版本:** v0.4.0 | **日期:** 2026-04-08 | **状态:** 已上线运营
+> **版本:** v0.5.0 | **日期:** 2026-04-14 | **状态:** 已上线运营
 
 ---
 
@@ -24,6 +24,8 @@
 | 层级 | 技术 | 说明 |
 |------|------|------|
 | **后端框架** | FastAPI + Uvicorn | 异步 Python Web 框架，支持 WebSocket |
+| **用户认证** | JWT + bcrypt | 🆕 注册/登录/Token 鉴权 |
+| **数据库** | SQLAlchemy + PostgreSQL/SQLite | 🆕 异步 ORM，开发用 SQLite，生产用 PostgreSQL |
 | **深度学习** | PyTorch 2.x (CPU) | 1D-CNN 训练与推理 |
 | **信号处理** | NeuroKit2 / MNE / SciPy | ECG R-peak 检测、EEG 分段、EMG 滤波 |
 | **数据分析** | NumPy / Pandas / Scikit-learn | t-SNE、混淆矩阵、特征提取 |
@@ -38,24 +40,31 @@
 +--------------------------------------------------------------+
 |                        前端 (Vanilla JS)                      |
 |  +----------+ +----------+ +----------+ +------------------+ |
-|  | 文件上传  | | 信号可视化| | 推理结果  | | 训练控制台(WS)   | |
+|  | 登录/注册 | | 文件上传  | | 推理结果  | | 训练控制台(WS)   |  ← v0.5 新增认证
 |  +----+-----+ +----+-----+ +----+-----+ +--------+---------+ |
-|  | 图表预览  | | 样式选择  | | 下载管理  | | 自动优化配置     | |
+|  | 图表预览  | | 信号可视化| | 下载管理  | | 自动优化配置     | |
 |  +----+-----+ +----+-----+ +----+-----+ +--------+---------+ |
 +-------+------------+------------+-----------------+----------+
         | REST API   | Plotly.js  | REST API        | WebSocket
+        | + JWT Auth |            | + JWT Auth      |
 +-------+------------+------------+-----------------+----------+
 |                     FastAPI 后端                               |
 |  +----------+ +----------+ +----------+ +------------------+ |
-|  |格式解析器 | |信号预处理 | |模型推理器 | | CNN训练引擎      | |
-|  |CSV/EDF/  | |ECG/EEG/  | |PyTorch/  | | Signal1DCNN      | |
-|  |MAT/ZIP   | |EMG多通道  | |ONNX/Demo | | + 自动超参优化    | |
+|  |用户认证   | |格式解析器 | |模型推理器 | | CNN训练引擎      | |
+|  |JWT/bcrypt | |CSV/EDF/  | |PyTorch/  | | Signal1DCNN      | |
+|  |← v0.5新增 | |MAT/ZIP   | |ONNX/Demo | | + 自动超参优化    | |
 |  +----------+ +----------+ +----------+ +------------------+ |
-|  +----------+ +----------+                                    |
-|  |出版图表   | |架构图生成 |  ← v0.4 新增                      |
-|  |Matplotlib | |纯Patches |                                    |
-|  +----------+ +----------+                                    |
-+--------------------------------------------------------------+
+|  +----------+ +----------+ +----------+                       |
+|  |出版图表   | |架构图生成 | |信号预处理 |                      |
+|  |Matplotlib | |纯Patches | |ECG/EEG/  |                      |
+|  +----------+ +----------+ |EMG多通道  |                      |
+|                             +----------+                      |
++-------------------------------+------------------------------+
+                                |
+                    +-----------+-----------+
+                    |  PostgreSQL / SQLite   |  ← v0.5 新增
+                    |  users, sessions       |
+                    +-----------------------+
 ```
 
 ---
@@ -193,9 +202,61 @@
 
 ---
 
-## 五、全部已完成功能
+## 五、v0.5 新增功能（P0 用户认证系统）
 
-### 5.1 推理分析模块
+### 5.0.1 JWT 用户认证
+
+> **新增模块：** `backend/auth.py` + `backend/routers/auth.py` + `backend/database.py` + `backend/models/user.py`
+
+面向多用户场景的完整认证系统。用户注册/登录后获取 JWT Token，前端自动携带 Token 访问所有 API。
+
+| 功能 | 技术方案 | 说明 |
+|------|---------|------|
+| **用户注册** | bcrypt 密码哈希 + JWT 签发 | 邮箱+用户名唯一约束，密码最少6位 |
+| **用户登录** | 用户名或邮箱均可登录 | 验证密码后签发 24h 有效 JWT |
+| **Token 鉴权** | OAuth2 Bearer Token | FastAPI 依赖注入，可选或强制鉴权 |
+| **会话持久化** | localStorage 存储 Token | 页面刷新后自动恢复登录状态 |
+
+**API 端点：**
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/auth/register` | POST | 注册（email, username, password）→ 返回 JWT |
+| `/api/auth/login` | POST | 登录（username/email + password）→ 返回 JWT |
+| `/api/auth/me` | GET | 获取当前用户信息（需 Bearer Token） |
+
+### 5.0.2 数据库层
+
+> **新增模块：** `backend/database.py` — SQLAlchemy 异步 ORM
+
+| 环境 | 数据库 | 配置方式 |
+|------|--------|---------|
+| **本地开发** | SQLite（`biospark.db`） | 默认，零配置 |
+| **Railway 生产** | PostgreSQL 16 | `DATABASE_URL` 环境变量自动注入 |
+| **Docker Compose** | PostgreSQL 16 Alpine | `docker-compose.yml` 已配置 |
+
+**数据表：**
+
+| 表名 | 字段 | 说明 |
+|------|------|------|
+| `users` | id, email, username, hashed_password, is_active, created_at | 用户账户表 |
+
+应用启动时自动执行 `init_db()` 创建表结构，无需手动迁移。
+
+### 5.0.3 前端认证 UI
+
+> **新增模块：** `frontend/js/auth.js`
+
+- **登录/注册按钮**：Header 右上角，与语言切换按钮并排
+- **模态弹窗**：毛玻璃遮罩 + 滑入动画，支持中英双语
+- **登录后显示**：用户名 + 退出按钮
+- **全局 Auth Headers**：所有 `fetch` 请求自动携带 `Authorization: Bearer <token>`
+
+---
+
+## 六、全部已完成功能
+
+### 6.1 推理分析模块
 
 | 功能 | 状态 | 说明 |
 |------|------|------|
@@ -208,7 +269,7 @@
 | 置信度分析 | ✅ | 逐段预测 + 概率分布 + 汇总统计 |
 | 结果导出 | ✅ | JSON / CSV 格式导出 |
 
-### 5.2 模型训练模块（Phase 1-6）
+### 6.2 模型训练模块（Phase 1-6）
 
 | 阶段 | 功能 | 说明 |
 |------|------|------|
@@ -224,27 +285,28 @@
 | **Phase 6** | **🆕 出版质量图表** | **5种图表 × 3种期刊样式 × PNG+SVG，一键ZIP下载** |
 | **Phase 6** | **🆕 模型架构图** | **自动生成 CNN 结构示意图，可直接用于论文** |
 
-### 5.3 UI/UX
+### 6.3 UI/UX
 
 - **暗色科技风主题**：深色背景(#0f172a)、毛玻璃卡片、霓虹青/粉色调
 - **Plotly 深色适配**：所有图表统一深色主题
 - **中英双语**：EN/中文 一键切换
 - **响应式布局**：移动端到桌面端
-- 🆕 **Auto-Optimize 开关**：训练配置区一键启用自动优化
-- 🆕 **期刊样式选择器**：Nature / IEEE / Science 三种学术风格一键切换
-- 🆕 **图表预览面板**：T6 区块展示 5 张出版级图表，逐图 PNG/SVG 下载
+- **Auto-Optimize 开关**：训练配置区一键启用自动优化
+- **期刊样式选择器**：Nature / IEEE / Science 三种学术风格一键切换
+- **图表预览面板**：T6 区块展示 5 张出版级图表，逐图 PNG/SVG 下载
+- 🆕 **用户认证 UI**：Header 登录/注册按钮 + 模态弹窗，登录后显示用户名
 
-### 5.4 部署
+### 6.4 部署
 
 | 平台 | 状态 | 功能范围 |
 |------|------|---------|
-| **Railway** | ✅ 已上线 | 全功能（推理+训练+WebSocket+出版图表） |
+| **Railway** | ✅ 已上线 | 全功能（推理+训练+WebSocket+出版图表+🆕 用户认证+PostgreSQL） |
 | **Vercel** | ✅ 已上线 | 前端 + 轻量 API |
-| **Docker** | ✅ 可用 | 本地/私有云一键部署 |
+| **Docker** | ✅ 可用 | 本地/私有云一键部署（🆕 含 PostgreSQL 服务） |
 
 ---
 
-## 六、CNN 模型架构详情
+## 七、CNN 模型架构详情
 
 ### Signal1DCNN（通用训练架构，v0.4 升级）
 
@@ -303,9 +365,9 @@ Output: 53-class probabilities  |  Params: 388K
 
 ---
 
-## 七、API 接口清单
+## 八、API 接口清单
 
-### 7.1 推理 API
+### 8.1 推理 API
 
 | 端点 | 方法 | 功能 |
 |------|------|------|
@@ -314,7 +376,7 @@ Output: 53-class probabilities  |  Params: 388K
 | `/api/upload` | POST | 上传并解析信号文件 |
 | `/api/analyze/{id}` | POST | 运行模型推理（支持多通道） |
 
-### 7.2 训练 API
+### 8.2 训练 API
 
 | 端点 | 方法 | 功能 |
 |------|------|------|
@@ -325,7 +387,7 @@ Output: 53-class probabilities  |  Params: 388K
 | `/api/train/{id}/confusion_matrix` | GET | 获取混淆矩阵 |
 | `/api/train/{id}/tsne` | GET | 获取 t-SNE 投影 |
 
-### 7.3 导出 API
+### 8.3 导出 API
 
 | 端点 | 方法 | 功能 |
 |------|------|------|
@@ -335,7 +397,7 @@ Output: 53-class probabilities  |  Params: 388K
 | `/api/train/{id}/export/tsne_csv` | GET | 下载 t-SNE CSV |
 | `/api/train/{id}/export/report` | GET | 下载 HTML 报告 |
 
-### 7.4 🆕 出版图表 API（v0.4 新增）
+### 8.4 出版图表 API（v0.4 新增）
 
 | 端点 | 方法 | 参数 | 功能 |
 |------|------|------|------|
@@ -348,43 +410,65 @@ Output: 53-class probabilities  |  Params: 388K
 
 **公共参数：** `style` = nature | ieee | science，`fmt` = png | svg
 
+### 8.5 🆕 用户认证 API（v0.5 新增）
+
+| 端点 | 方法 | 请求体 | 功能 |
+|------|------|--------|------|
+| `/api/auth/register` | POST | `{email, username, password}` | 用户注册，返回 JWT Token |
+| `/api/auth/login` | POST | `{username, password}` | 用户登录（支持邮箱/用户名），返回 JWT Token |
+| `/api/auth/me` | GET | — (Bearer Token) | 获取当前登录用户信息 |
+
+**响应格式（register/login）：**
+```json
+{
+  "access_token": "eyJhbGci...",
+  "token_type": "bearer",
+  "user": {"id": 1, "email": "...", "username": "...", "created_at": "..."}
+}
+```
+
 ---
 
-## 八、项目文件结构（v0.4）
+## 九、项目文件结构（v0.5）
 
 ```
 backend/
-├── main.py                       # FastAPI 主入口 + 路由注册
+├── main.py                       # FastAPI 主入口 + 路由注册 + Lifespan DB 初始化
 ├── config.py                     # MODEL_REGISTRY, PREPROCESS_CONFIG
+├── auth.py                       # 🆕 JWT 创建/验证、bcrypt 哈希、FastAPI 鉴权依赖
+├── database.py                   # 🆕 SQLAlchemy 异步引擎、Session 工厂、init_db()
 ├── routers/
+│   ├── auth.py                   # 🆕 用户认证 API（register/login/me）
 │   ├── upload.py                 # 文件上传解析
 │   ├── analysis.py               # 模型推理
 │   ├── models.py                 # 模型列表
 │   ├── training.py               # 训练 API + WebSocket (Phase 1-5)
-│   └── figures.py                # 🆕 出版图表 API (Phase 6)
-├── services/
-│   ├── format_parser.py          # CSV/EDF/MAT 解析
-│   ├── preprocess.py             # ECG/EEG/EMG 预处理
-│   ├── predictor.py              # PyTorch/ONNX/Demo 推理
-│   ├── trainer.py                # Signal1DCNN + 训练循环（🔄 支持动态架构）
-│   ├── dataset_loader.py         # 标注数据集解析
-│   ├── auto_optimizer.py         # 🆕 LR finder / Early Stopping / 类别权重 / 架构选择
-│   └── publication_figures.py    # 🆕 Matplotlib 出版图表渲染（5种）
-└── models/
-    ├── ecg_arrhythmia_cnn.pt     # 94.1% 准确率
-    ├── eeg_sleep_staging.pt      # 训练中
-    └── emg_gesture_cnn.pt        # 42.7% 准确率
+│   └── figures.py                # 出版图表 API (Phase 6)
+├── models/
+│   ├── user.py                   # 🆕 User 数据库模型（SQLAlchemy ORM）
+│   ├── ecg_arrhythmia_cnn.pt     # 94.1% 准确率
+│   ├── eeg_sleep_staging.pt      # 训练中
+│   └── emg_gesture_cnn.pt        # 42.7% 准确率
+└── services/
+    ├── format_parser.py          # CSV/EDF/MAT 解析
+    ├── preprocess.py             # ECG/EEG/EMG 预处理
+    ├── predictor.py              # PyTorch/ONNX/Demo 推理
+    ├── trainer.py                # Signal1DCNN + 训练循环（支持动态架构）
+    ├── dataset_loader.py         # 标注数据集解析
+    ├── auto_optimizer.py         # LR finder / Early Stopping / 类别权重 / 架构选择
+    └── publication_figures.py    # Matplotlib 出版图表渲染（5种）
 
 frontend/
-├── index.html                    # 主页（🔄 新增 T6 图表区块 + Auto-Optimize UI）
-├── css/style.css                 # 暗色主题（🔄 新增图表面板样式）
+├── index.html                    # 主页（🔄 新增 auth-area 认证区域）
+├── css/style.css                 # 暗色主题（🔄 新增认证模态框样式）
 └── js/
-    ├── app.js                    # 语言切换、模式切换
-    ├── uploader.js               # 推理文件上传
+    ├── auth.js                   # 🆕 认证模块（登录/注册/Token 管理/模态弹窗）
+    ├── app.js                    # 语言切换、模式切换（🔄 Auth 初始化）
+    ├── uploader.js               # 推理文件上传（🔄 携带 Auth Headers）
     ├── visualizer.js             # Plotly 信号可视化
     ├── results.js                # 推理结果展示
-    ├── trainer.js                # 训练控制台（🔄 新增 getJobId / 图表触发）
-    └── figures.js                # 🆕 出版图表预览 + 下载
+    ├── trainer.js                # 训练控制台（🔄 携带 Auth Headers）
+    └── figures.js                # 出版图表预览 + 下载
 
 training/
 ├── train_ecg_arrhythmia.py       # MIT-BIH → 94.1%
@@ -395,20 +479,21 @@ training/
 
 ---
 
-## 九、未来目标
+## 十、未来目标
 
-### 9.1 短期目标（1-3 个月）
+### 10.1 短期目标（1-3 个月）
 
 | 目标 | 优先级 | 说明 |
 |------|--------|------|
 | **EEG 睡眠分期模型完善** | P0 | 完成 Sleep-EDF 训练，优化准确率 |
 | **EMG 模型精度提升** | P0 | 数据增强、注意力机制、per-subject fine-tuning |
 | **注意力热力图** | P1 | Grad-CAM 可视化 CNN 关注的信号区域 |
-| **用户认证系统** | P0 | JWT 登录/注册，训练历史持久化 |
-| **数据库集成** | P0 | PostgreSQL 存储用户数据、模型版本、训练记录 |
+| ~~用户认证系统~~ | ~~P0~~ | ✅ **v0.5 已完成** — JWT + bcrypt + PostgreSQL |
+| ~~数据库集成~~ | ~~P0~~ | ✅ **v0.5 已完成** — SQLAlchemy async ORM + PostgreSQL |
+| **训练历史持久化** | P0 | 将训练记录关联用户，存入数据库（v0.5 基础设施已就绪） |
 | **批量处理 API** | P1 | 支持上传多文件批量分析 |
 
-### 9.2 中期目标（3-6 个月）
+### 10.2 中期目标（3-6 个月）
 
 | 目标 | 说明 |
 |------|------|
@@ -418,7 +503,7 @@ training/
 | **实时流式推理** | WebSocket 接入可穿戴设备实时数据流 |
 | **团队协作** | 多用户项目空间，共享数据集和模型 |
 
-### 9.3 长期愿景（6-12 个月）
+### 10.3 长期愿景（6-12 个月）
 
 | 目标 | 说明 |
 |------|------|
@@ -429,9 +514,9 @@ training/
 
 ---
 
-## 十、盈利策略
+## 十一、盈利策略
 
-### 10.1 分层定价
+### 11.1 分层定价
 
 | 版本 | 价格 | 目标用户 | 核心功能 |
 |------|------|---------|---------|
@@ -439,7 +524,7 @@ training/
 | **专业版** | ¥99/月 | 研究者/小实验室 | 无限推理、CNN训练(GPU)、模型导出、出版图表 |
 | **企业版** | ¥4,999+/月 | 医院/医疗公司 | 私有部署、API批量调用、合规审计 |
 
-### 10.2 增值收入
+### 11.2 增值收入
 
 | 收入来源 | 模式 | 预估 |
 |----------|------|------|
@@ -450,9 +535,9 @@ training/
 
 ---
 
-## 十一、关键指标
+## 十二、关键指标
 
-### 11.1 技术指标
+### 12.1 技术指标
 
 | 指标 | 当前值 |
 |------|--------|
@@ -464,13 +549,15 @@ training/
 | EMG 支持手势数 | 52 种 + Rest |
 | EMG 输入通道数 | 16 通道 sEMG |
 | 支持信号格式数 | 4 种（CSV/EDF/MAT/TXT） |
-| API 端点数 | 24 个（🆕 +6 图表端点） |
-| 出版图表类型 | 🆕 5 种 |
-| 支持期刊样式 | 🆕 3 种（Nature/IEEE/Science） |
-| 图表输出分辨率 | 🆕 300 DPI PNG + SVG 矢量 |
+| API 端点数 | 27 个（🆕 +3 认证端点） |
+| 出版图表类型 | 5 种 |
+| 支持期刊样式 | 3 种（Nature/IEEE/Science） |
+| 图表输出分辨率 | 300 DPI PNG + SVG 矢量 |
+| 用户认证 | 🆕 JWT + bcrypt，24h Token 有效期 |
+| 数据库 | 🆕 PostgreSQL（生产）/ SQLite（开发） |
 | Docker 镜像大小 | ~1.5 GB |
 
-### 11.2 项目进度
+### 12.2 项目进度
 
 | 里程碑 | 完成日期 | 内容 |
 |--------|---------|------|
@@ -479,22 +566,35 @@ training/
 | v0.2.1 — 部署 | 2026-04-05 | Railway/Vercel 双平台上线 |
 | v0.2.2 — UI 重设计 | 2026-04-05 | 暗色科技风主题、Plotly 深色适配 |
 | v0.3 — 模型扩充 | 2026-04-06 | EEG 睡眠分期 + EMG 53类手势识别（NinaPro DB5 真实数据） |
-| **v0.4 — 科研升级** | **2026-04-08** | **自动超参优化 + 出版质量图表(5种) + 模型架构图 + 3种期刊样式** |
+| v0.4 — 科研升级 | 2026-04-08 | 自动超参优化 + 出版质量图表(5种) + 模型架构图 + 3种期刊样式 |
+| **v0.5 — 用户系统** | **2026-04-14** | **JWT 用户认证 + PostgreSQL 数据库 + 前端登录/注册 UI** |
 
 ---
 
-## 十二、v0.4 新增依赖
+## 十三、v0.5 新增依赖
 
 | 包 | 版本 | 用途 |
 |---|------|------|
-| matplotlib | ≥3.8.0 | 出版质量图表渲染（PNG/SVG） |
-| seaborn | ≥0.13.0 | 色彩方案辅助 |
+| sqlalchemy[asyncio] | ≥2.0.0 | 异步 ORM，支持 SQLite / PostgreSQL |
+| aiosqlite | ≥0.20.0 | SQLite 异步驱动（本地开发） |
+| asyncpg | ≥0.30.0 | PostgreSQL 异步驱动（生产环境） |
+| python-jose[cryptography] | ≥3.3.0 | JWT Token 签发与验证 |
+| bcrypt | ≥4.0.0 | 密码哈希（直接使用，不依赖 passlib） |
+| pydantic[email] | ≥2.0.0 | EmailStr 验证 |
 
-*无需 Graphviz 系统依赖——架构图使用纯 Matplotlib Patches 绘制。*
+**v0.4 已有依赖（保留）：** matplotlib ≥3.8.0, seaborn ≥0.13.0
+
+**环境变量：**
+
+| 变量 | 必需 | 默认值 | 说明 |
+|------|------|--------|------|
+| `DATABASE_URL` | 生产环境必需 | `sqlite+aiosqlite:///./biospark.db` | Railway PostgreSQL 插件自动注入 |
+| `JWT_SECRET_KEY` | 生产环境必需 | `biospark-dev-secret-...` | 用于签发 JWT，生产环境务必设为随机强密码 |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | 可选 | `1440`（24小时） | JWT Token 有效期 |
 
 ---
 
-## 十三、风险与应对
+## 十四、风险与应对
 
 | 风险 | 等级 | 应对策略 |
 |------|------|---------|
@@ -506,15 +606,15 @@ training/
 
 ---
 
-## 十四、总结
+## 十五、总结
 
-BioSpark v0.4 完成了面向科研人员的重大功能升级。在 v0.3 三信号全覆盖的基础上，新增了**自动超参优化**和**出版质量图表**两大核心能力：
+BioSpark v0.5 在 v0.4 科研功能的基础上，完成了**用户认证系统和数据库基础设施**的搭建，为后续多用户、训练历史持久化、商业化功能奠定了基础。
 
-**v0.4 核心价值：**
-1. **零调参训练** — Auto-Optimize 一键启用 LR finder + 架构自适应 + Early Stopping + 类别权重
-2. **论文级图表** — 5 种图表 × 3 种期刊样式（Nature/IEEE/Science），300 DPI PNG + SVG
-3. **模型架构图** — 自动从训练模型生成结构示意图，可直接插入论文
-4. **一键打包** — ZIP 下载全部图表（10文件），附 README 说明
+**v0.5 核心价值：**
+1. **用户认证** — JWT 注册/登录，bcrypt 密码加密，24h Token 有效期
+2. **数据库层** — SQLAlchemy 异步 ORM，开发用 SQLite / 生产用 PostgreSQL，自动建表
+3. **前端集成** — Header 登录/注册按钮 + 模态弹窗，全局 API 请求携带 Auth Token
+4. **生产级部署** — Railway + PostgreSQL 插件，环境变量自动切换数据库
 
 **平台核心竞争力：**
 1. **零代码门槛** — 浏览器即用，无需 Python/MATLAB 知识
@@ -522,9 +622,10 @@ BioSpark v0.4 完成了面向科研人员的重大功能升级。在 v0.3 三信
 3. **端到端训练** — 上传数据到导出模型 + 论文图表，6 步完成
 4. **科研级输出** — 出版质量图表直接满足 Nature/IEEE/Science 投稿要求
 5. **真实数据验证** — 基于 MIT-BIH、NinaPro DB5 等权威数据集
+6. 🆕 **多用户支持** — 注册登录系统 + PostgreSQL 持久化，具备商业化基础
 
-**下一步重点：** EMG 精度优化 → EEG 模型完成 → 用户系统 → 实时流式推理 → 商业化。
+**下一步重点：** 训练历史持久化（关联用户） → EMG 精度优化 → EEG 模型完成 → 实时流式推理 → 商业化。
 
 ---
 
-*本报告由 BioSpark 团队编写，基于 v0.4.0 版本（2026-04-08）。*
+*本报告由 BioSpark 团队编写，基于 v0.5.0 版本（2026-04-14）。*
