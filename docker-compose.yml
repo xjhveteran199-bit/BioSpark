@@ -11,4 +11,27 @@ services:
     environment:
       - HOST=0.0.0.0
       - PORT=8000
+      - DATABASE_URL=postgresql+asyncpg://biospark:biospark@db:5432/biospark
+      - JWT_SECRET_KEY=change-me-in-production
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=biospark
+      - POSTGRES_PASSWORD=biospark
+      - POSTGRES_DB=biospark
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U biospark"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:

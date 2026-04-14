@@ -73,7 +73,8 @@ const Uploader = {
             }
             if (params.toString()) url += `?${params}`;
 
-            const resp = await fetch(url, { method: 'POST', body: form });
+            const headers = window.Auth ? Auth.authHeaders() : {};
+            const resp = await fetch(url, { method: 'POST', body: form, headers });
 
             if (!resp.ok) {
                 const err = await resp.json();

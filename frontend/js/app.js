@@ -21,6 +21,9 @@ const App = {
             this.lang = 'zh';
             this.applyLang();
         }
+
+        // Initialize auth
+        if (window.Auth) Auth.checkSession();
     },
 
     bindEvents() {
@@ -67,7 +70,8 @@ const App = {
     // --- Models ---
     async loadModels() {
         try {
-            const resp = await fetch(`${API_BASE}/models`);
+            const headers = window.Auth ? Auth.authHeaders() : {};
+            const resp = await fetch(`${API_BASE}/models`, { headers });
             if (resp.ok) {
                 const data = await resp.json();
                 this.renderModels(data.models);
@@ -148,9 +152,10 @@ const App = {
         const channel = document.getElementById('channel-select').value || 0;
 
         try {
+            const aHeaders = window.Auth ? Auth.authHeaders() : {};
             const resp = await fetch(
                 `${API_BASE}/analyze/${Uploader.fileId}?model_id=${this.selectedModel}&channel=${channel}`,
-                { method: 'POST' }
+                { method: 'POST', headers: aHeaders }
             );
 
             if (!resp.ok) {

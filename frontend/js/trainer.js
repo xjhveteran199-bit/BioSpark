@@ -68,7 +68,8 @@ const Trainer = (() => {
         form.append('file', file);
 
         try {
-            const resp = await fetch(`${API_BASE}/train/upload`, { method: 'POST', body: form });
+            const aHeaders = window.Auth ? Auth.authHeaders() : {};
+            const resp = await fetch(`${API_BASE}/train/upload`, { method: 'POST', body: form, headers: aHeaders });
             if (!resp.ok) { const err = await resp.json(); throw new Error(err.detail || 'Upload failed'); }
             const data = await resp.json();
             datasetId = data.dataset_id;
@@ -253,9 +254,10 @@ const Trainer = (() => {
         _setStatus('train-run-status', 'loading', '<span class="spinner"></span>Starting training…');
 
         try {
+            const trainHeaders = { 'Content-Type': 'application/json', ...(window.Auth ? Auth.authHeaders() : {}) };
             const resp = await fetch(`${API_BASE}/train/start`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: trainHeaders,
                 body: JSON.stringify({
                     dataset_id: datasetId,
                     epochs, learning_rate: lr, batch_size: batchSize, val_split: valSplit,
