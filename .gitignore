@@ -39,6 +39,9 @@ uploads/
 .DS_Store
 Thumbs.db
 
+# Database (dev SQLite)
+*.db
+
 # Environment
 .env
 .env.local
