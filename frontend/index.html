@@ -8,6 +8,73 @@
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+
+    <!-- ═══════════════ AUTH GATE (shown when not logged in) ═══════════════ -->
+    <div id="auth-gate">
+        <div class="auth-gate-bg"></div>
+        <div class="auth-gate-container">
+            <div class="auth-gate-logo">
+                <svg width="56" height="56" viewBox="0 0 42 42" fill="none">
+                    <defs>
+                        <linearGradient id="logo-grad-auth" x1="0" y1="0" x2="42" y2="42" gradientUnits="userSpaceOnUse">
+                            <stop offset="0%" stop-color="#22d3ee"/>
+                            <stop offset="50%" stop-color="#6366f1"/>
+                            <stop offset="100%" stop-color="#f472b6"/>
+                        </linearGradient>
+                    </defs>
+                    <rect width="42" height="42" rx="12" fill="rgba(99,102,241,0.15)" stroke="url(#logo-grad-auth)" stroke-width="1.5"/>
+                    <path d="M5 21 L10 21 L13 12 L17 30 L21 7 L25 30 L29 12 L32 21 L37 21" stroke="url(#logo-grad-auth)" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <h1>BioSpark</h1>
+                <p class="auth-gate-subtitle" data-en="AI-Powered Biosignal Analysis Platform" data-zh="AI 生物信号智能分析平台">AI-Powered Biosignal Analysis Platform</p>
+            </div>
+
+            <div class="auth-gate-card">
+                <div class="auth-gate-tabs">
+                    <button class="auth-gate-tab active" data-tab="login" onclick="Auth.switchTab('login')" data-en="Login" data-zh="登录">Login</button>
+                    <button class="auth-gate-tab" data-tab="register" onclick="Auth.switchTab('register')" data-en="Register" data-zh="注册">Register</button>
+                </div>
+
+                <!-- Login Form -->
+                <form id="auth-login-form" class="auth-gate-form" onsubmit="Auth.handleLogin(event)">
+                    <label class="auth-field">
+                        <span data-en="Username or Email" data-zh="用户名或邮箱">Username or Email</span>
+                        <input type="text" id="login-username" placeholder="" required>
+                    </label>
+                    <label class="auth-field">
+                        <span data-en="Password" data-zh="密码">Password</span>
+                        <input type="password" id="login-password" placeholder="" required>
+                    </label>
+                    <div id="login-error" class="auth-error hidden"></div>
+                    <button type="submit" class="btn primary auth-submit-btn" data-en="Login" data-zh="登录">Login</button>
+                </form>
+
+                <!-- Register Form -->
+                <form id="auth-register-form" class="auth-gate-form hidden" onsubmit="Auth.handleRegister(event)">
+                    <label class="auth-field">
+                        <span data-en="Email" data-zh="邮箱">Email</span>
+                        <input type="email" id="register-email" placeholder="" required>
+                    </label>
+                    <label class="auth-field">
+                        <span data-en="Username" data-zh="用户名">Username</span>
+                        <input type="text" id="register-username" placeholder="" required minlength="2">
+                    </label>
+                    <label class="auth-field">
+                        <span data-en="Password" data-zh="密码 (至少6位)">Password (min 6 chars)</span>
+                        <input type="password" id="register-password" placeholder="" required minlength="6">
+                    </label>
+                    <div id="register-error" class="auth-error hidden"></div>
+                    <button type="submit" class="btn primary auth-submit-btn" data-en="Create Account" data-zh="创建账号">Create Account</button>
+                </form>
+            </div>
+
+            <p class="auth-gate-footer" data-en="ECG · EEG · EMG — Upload, Analyze, Train" data-zh="ECG · EEG · EMG — 上传、分析、训练">ECG · EEG · EMG — Upload, Analyze, Train</p>
+        </div>
+    </div>
+
+    <!-- ═══════════════ MAIN APP (hidden until logged in) ═══════════════ -->
+    <div id="app-wrapper" class="hidden">
+
     <header>
         <div class="header-top">
             <div id="auth-area" class="auth-area"></div>
@@ -451,7 +518,9 @@
         <p data-en="BioSpark v0.5 — AI-powered biosignal analysis + training platform" data-zh="BioSpark v0.5 — AI 生物信号分析 + 训练平台">BioSpark v0.5 — AI-powered biosignal analysis + training platform</p>
     </footer>
 
-    <script src="js/auth.js?v=1"></script>
+    </div><!-- end #app-wrapper -->
+
+    <script src="js/auth.js?v=2"></script>
     <script src="js/uploader.js?v=3"></script>
     <script src="js/visualizer.js?v=3"></script>
     <script src="js/results.js?v=3"></script>

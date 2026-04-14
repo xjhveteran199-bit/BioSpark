@@ -1,6 +1,6 @@
 /**
- * Auth module — handles registration, login, logout, and token management.
- * Stores JWT token in localStorage. Exposes Auth global.
+ * Auth module — full-page login/register gate.
+ * Users must authenticate before accessing the main app.
  */
 
 const Auth = (() => {
@@ -36,52 +36,130 @@ const Auth = (() => {
         return !!getToken();
     }
 
-    // --- Auth headers helper ---
-
     function authHeaders() {
         const token = getToken();
         if (!token) return {};
         return { 'Authorization': `Bearer ${token}` };
     }
 
-    // --- API calls ---
+    // --- Tab switching ---
 
-    async function register(email, username, password) {
-        const resp = await fetch(`${API_BASE}/auth/register`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, username, password }),
+    function switchTab(tab) {
+        document.querySelectorAll('.auth-gate-tab').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tab === tab);
         });
-        const data = await resp.json();
-        if (!resp.ok) throw new Error(data.detail || 'Registration failed');
-        _saveSession(data.access_token, data.user);
-        _updateUI();
-        return data.user;
+        document.getElementById('auth-login-form').classList.toggle('hidden', tab !== 'login');
+        document.getElementById('auth-register-form').classList.toggle('hidden', tab !== 'register');
+        // Clear errors
+        document.getElementById('login-error').classList.add('hidden');
+        document.getElementById('register-error').classList.add('hidden');
     }
 
-    async function login(username, password) {
-        const resp = await fetch(`${API_BASE}/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password }),
-        });
-        const data = await resp.json();
-        if (!resp.ok) throw new Error(data.detail || 'Login failed');
-        _saveSession(data.access_token, data.user);
-        _updateUI();
-        return data.user;
+    // --- Form handlers ---
+
+    async function handleLogin(e) {
+        e.preventDefault();
+        const errorEl = document.getElementById('login-error');
+        const btn = e.target.querySelector('.auth-submit-btn');
+        errorEl.classList.add('hidden');
+        btn.disabled = true;
+
+        const username = document.getElementById('login-username').value.trim();
+        const password = document.getElementById('login-password').value;
+
+        try {
+            const resp = await fetch(`${API_BASE}/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password }),
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.detail || 'Login failed');
+            _saveSession(data.access_token, data.user);
+            _enterApp();
+        } catch (err) {
+            errorEl.textContent = err.message;
+            errorEl.classList.remove('hidden');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    async function handleRegister(e) {
+        e.preventDefault();
+        const errorEl = document.getElementById('register-error');
+        const btn = e.target.querySelector('.auth-submit-btn');
+        errorEl.classList.add('hidden');
+        btn.disabled = true;
+
+        const email = document.getElementById('register-email').value.trim();
+        const username = document.getElementById('register-username').value.trim();
+        const password = document.getElementById('register-password').value;
+
+        try {
+            const resp = await fetch(`${API_BASE}/auth/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, username, password }),
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.detail || 'Registration failed');
+            _saveSession(data.access_token, data.user);
+            _enterApp();
+        } catch (err) {
+            errorEl.textContent = err.message;
+            errorEl.classList.remove('hidden');
+        } finally {
+            btn.disabled = false;
+        }
     }
 
     function logout() {
         _clearSession();
-        _updateUI();
+        _showGate();
     }
 
-    // --- Verify saved token on page load ---
+    // --- View control ---
+
+    function _enterApp() {
+        document.getElementById('auth-gate').classList.add('hidden');
+        document.getElementById('app-wrapper').classList.remove('hidden');
+        _updateHeader();
+    }
+
+    function _showGate() {
+        document.getElementById('auth-gate').classList.remove('hidden');
+        document.getElementById('app-wrapper').classList.add('hidden');
+        // Reset forms
+        document.getElementById('auth-login-form').reset();
+        document.getElementById('auth-register-form').reset();
+        document.getElementById('login-error').classList.add('hidden');
+        document.getElementById('register-error').classList.add('hidden');
+        switchTab('login');
+    }
+
+    function _updateHeader() {
+        const user = getUser();
+        const authArea = document.getElementById('auth-area');
+        if (!authArea || !user) return;
+
+        authArea.innerHTML = `
+            <span class="auth-user-name">${_escHtml(user.username)}</span>
+            <button class="auth-btn auth-btn-logout" onclick="Auth.logout()"
+                data-en="Logout" data-zh="退出">Logout</button>
+        `;
+
+        if (window.App && App.lang) App.applyLang();
+    }
+
+    // --- Session check on page load ---
 
     async function checkSession() {
         const token = getToken();
-        if (!token) { _updateUI(); return; }
+        if (!token) {
+            _showGate();
+            return;
+        }
 
         try {
             const resp = await fetch(`${API_BASE}/auth/me`, {
@@ -90,134 +168,16 @@ const Auth = (() => {
             if (resp.ok) {
                 const user = await resp.json();
                 localStorage.setItem(USER_KEY, JSON.stringify(user));
-                _updateUI();
+                _enterApp();
             } else {
                 _clearSession();
-                _updateUI();
+                _showGate();
             }
         } catch {
-            // Network error — keep session, user might be offline
-            _updateUI();
+            // Network error — still try to enter if token exists
+            _enterApp();
         }
     }
-
-    // --- UI Updates ---
-
-    function _updateUI() {
-        const loggedIn = isLoggedIn();
-        const user = getUser();
-
-        // Auth area in header
-        const authArea = document.getElementById('auth-area');
-        if (!authArea) return;
-
-        if (loggedIn && user) {
-            authArea.innerHTML = `
-                <span class="auth-user-name">${_escHtml(user.username)}</span>
-                <button class="auth-btn auth-btn-logout" onclick="Auth.logout()"
-                    data-en="Logout" data-zh="退出">Logout</button>
-            `;
-        } else {
-            authArea.innerHTML = `
-                <button class="auth-btn auth-btn-login" onclick="Auth.showModal('login')"
-                    data-en="Login" data-zh="登录">Login</button>
-                <button class="auth-btn auth-btn-register" onclick="Auth.showModal('register')"
-                    data-en="Register" data-zh="注册">Register</button>
-            `;
-        }
-
-        // Re-apply language if App is loaded
-        if (window.App && App.lang) App.applyLang();
-    }
-
-    // --- Modal ---
-
-    function showModal(mode) {
-        const isZh = window.App && App.lang === 'zh';
-        const isLogin = mode === 'login';
-
-        const title = isLogin
-            ? (isZh ? '登录' : 'Login')
-            : (isZh ? '注册' : 'Create Account');
-
-        const switchText = isLogin
-            ? (isZh ? '没有账号？<a href="#" onclick="Auth.showModal(\'register\'); return false;">注册</a>' : 'No account? <a href="#" onclick="Auth.showModal(\'register\'); return false;">Register</a>')
-            : (isZh ? '已有账号？<a href="#" onclick="Auth.showModal(\'login\'); return false;">登录</a>' : 'Already have an account? <a href="#" onclick="Auth.showModal(\'login\'); return false;">Login</a>');
-
-        const emailField = isLogin ? '' : `
-            <label class="auth-field">
-                <span>${isZh ? '邮箱' : 'Email'}</span>
-                <input type="email" id="auth-email" placeholder="${isZh ? '你的邮箱' : 'your@email.com'}" required>
-            </label>`;
-
-        const overlay = document.createElement('div');
-        overlay.id = 'auth-overlay';
-        overlay.className = 'auth-overlay';
-        overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
-
-        overlay.innerHTML = `
-            <div class="auth-modal">
-                <button class="auth-modal-close" onclick="Auth.closeModal()">&times;</button>
-                <h2>${title}</h2>
-                <form id="auth-form" onsubmit="Auth.handleSubmit(event, '${mode}')">
-                    ${emailField}
-                    <label class="auth-field">
-                        <span>${isZh ? '用户名' : 'Username'}</span>
-                        <input type="text" id="auth-username" placeholder="${isZh ? '用户名' : 'username'}" required minlength="2">
-                    </label>
-                    <label class="auth-field">
-                        <span>${isZh ? '密码' : 'Password'}</span>
-                        <input type="password" id="auth-password" placeholder="${isZh ? '密码（至少6位）' : 'password (min 6 chars)'}" required minlength="6">
-                    </label>
-                    <div id="auth-error" class="auth-error hidden"></div>
-                    <button type="submit" class="btn primary auth-submit-btn">${title}</button>
-                </form>
-                <p class="auth-switch">${switchText}</p>
-            </div>
-        `;
-
-        // Remove existing overlay if present
-        closeModal();
-        document.body.appendChild(overlay);
-
-        // Focus first input
-        setTimeout(() => {
-            const first = overlay.querySelector('input');
-            if (first) first.focus();
-        }, 100);
-    }
-
-    function closeModal() {
-        const existing = document.getElementById('auth-overlay');
-        if (existing) existing.remove();
-    }
-
-    async function handleSubmit(e, mode) {
-        e.preventDefault();
-        const errorEl = document.getElementById('auth-error');
-        const submitBtn = document.querySelector('.auth-submit-btn');
-        errorEl.classList.add('hidden');
-        submitBtn.disabled = true;
-
-        const username = document.getElementById('auth-username').value.trim();
-        const password = document.getElementById('auth-password').value;
-
-        try {
-            if (mode === 'register') {
-                const email = document.getElementById('auth-email').value.trim();
-                await register(email, username, password);
-            } else {
-                await login(username, password);
-            }
-            closeModal();
-        } catch (err) {
-            errorEl.textContent = err.message;
-            errorEl.classList.remove('hidden');
-            submitBtn.disabled = false;
-        }
-    }
-
-    // --- Helper ---
 
     function _escHtml(str) {
         const div = document.createElement('div');
@@ -227,9 +187,8 @@ const Auth = (() => {
 
     return {
         getToken, getUser, isLoggedIn, authHeaders,
-        register, login, logout, checkSession,
-        showModal, closeModal, handleSubmit,
-        _updateUI,
+        switchTab, handleLogin, handleRegister, logout,
+        checkSession, _updateHeader,
     };
 })();
 
