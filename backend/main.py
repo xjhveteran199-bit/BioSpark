@@ -1,11 +1,15 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pathlib import Path
 
+from backend.database import init_db
 from backend.routers import training as training_router
 from backend.routers import figures as figures_router
+from backend.routers import auth as auth_router
 
 # These routers depend on scipy/onnxruntime — import gracefully for serverless
 try:
@@ -14,10 +18,19 @@ try:
 except ImportError:
     _inference_available = False
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: create database tables
+    await init_db()
+    yield
+
+
 app = FastAPI(
     title="BioSpark",
     description="Upload biosignal data (ECG/EEG/EMG), run pre-trained DL models, get predictions. Also supports user-driven CNN training on labeled datasets.",
-    version="0.4.0",
+    version="0.5.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -25,13 +38,17 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 
 # --- API routes (must be registered BEFORE static file mount) ---
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.1.0"}
+    return {"status": "ok", "version": "0.5.0"}
+
+# Auth routes
+app.include_router(auth_router.router, prefix="/api", tags=["Auth"])
 
 if _inference_available:
     app.include_router(upload.router, prefix="/api", tags=["Upload"])
