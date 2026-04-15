@@ -122,6 +122,7 @@ const Auth = (() => {
     // --- View control ---
 
     function _enterApp() {
+        if (window.LoginFX) LoginFX.destroy();
         document.getElementById('auth-gate').classList.add('hidden');
         document.getElementById('app-wrapper').classList.remove('hidden');
         _updateHeader();
@@ -136,6 +137,8 @@ const Auth = (() => {
         document.getElementById('login-error').classList.add('hidden');
         document.getElementById('register-error').classList.add('hidden');
         switchTab('login');
+        // Start login animations
+        setTimeout(() => { if (window.LoginFX) LoginFX.init(); }, 50);
     }
 
     function _updateHeader() {
