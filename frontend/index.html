@@ -11,25 +11,47 @@
 
     <!-- ═══════════════ AUTH GATE (shown when not logged in) ═══════════════ -->
     <div id="auth-gate">
+        <canvas id="auth-canvas"></canvas>
         <div class="auth-gate-bg"></div>
+
+        <!-- Corner HUD brackets -->
+        <div class="hud-corner hud-corner-tl"></div>
+        <div class="hud-corner hud-corner-tr"></div>
+        <div class="hud-corner hud-corner-bl"></div>
+        <div class="hud-corner hud-corner-br"></div>
+
+        <!-- Top status bar -->
+        <div class="hud-status-bar">
+            <span class="hud-status-dot"></span>
+            <span data-en="NEURAL GATEWAY v2.0 — SECURE CHANNEL ESTABLISHED" data-zh="神经网关 v2.0 — 安全通道已建立">NEURAL GATEWAY v2.0 — SECURE CHANNEL ESTABLISHED</span>
+        </div>
+
         <div class="auth-gate-container">
             <div class="auth-gate-logo">
-                <svg width="56" height="56" viewBox="0 0 42 42" fill="none">
-                    <defs>
-                        <linearGradient id="logo-grad-auth" x1="0" y1="0" x2="42" y2="42" gradientUnits="userSpaceOnUse">
-                            <stop offset="0%" stop-color="#22d3ee"/>
-                            <stop offset="50%" stop-color="#6366f1"/>
-                            <stop offset="100%" stop-color="#f472b6"/>
-                        </linearGradient>
-                    </defs>
-                    <rect width="42" height="42" rx="12" fill="rgba(99,102,241,0.15)" stroke="url(#logo-grad-auth)" stroke-width="1.5"/>
-                    <path d="M5 21 L10 21 L13 12 L17 30 L21 7 L25 30 L29 12 L32 21 L37 21" stroke="url(#logo-grad-auth)" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
+                <div class="logo-ring-wrapper">
+                    <svg class="logo-svg" width="80" height="80" viewBox="0 0 42 42" fill="none">
+                        <defs>
+                            <linearGradient id="logo-grad-auth" x1="0" y1="0" x2="42" y2="42" gradientUnits="userSpaceOnUse">
+                                <stop offset="0%" stop-color="#22d3ee"/>
+                                <stop offset="50%" stop-color="#6366f1"/>
+                                <stop offset="100%" stop-color="#f472b6"/>
+                            </linearGradient>
+                        </defs>
+                        <rect width="42" height="42" rx="12" fill="rgba(99,102,241,0.15)" stroke="url(#logo-grad-auth)" stroke-width="1.5"/>
+                        <path d="M5 21 L10 21 L13 12 L17 30 L21 7 L25 30 L29 12 L32 21 L37 21" stroke="url(#logo-grad-auth)" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </div>
                 <h1>BioSpark</h1>
-                <p class="auth-gate-subtitle" data-en="AI-Powered Biosignal Analysis Platform" data-zh="AI 生物信号智能分析平台">AI-Powered Biosignal Analysis Platform</p>
+                <p class="auth-gate-subtitle" data-en="AI-Powered Biosignal Analysis Platform" data-zh="AI 生物信号智能分析平台"></p>
             </div>
 
             <div class="auth-gate-card">
+                <div class="auth-card-header">
+                    <div class="auth-card-header-line"></div>
+                    <span data-en="IDENTITY VERIFICATION" data-zh="身份验证">IDENTITY VERIFICATION</span>
+                    <div class="auth-card-header-line"></div>
+                </div>
+
                 <div class="auth-gate-tabs">
                     <button class="auth-gate-tab active" data-tab="login" onclick="Auth.switchTab('login')" data-en="Login" data-zh="登录">Login</button>
                     <button class="auth-gate-tab" data-tab="register" onclick="Auth.switchTab('register')" data-en="Register" data-zh="注册">Register</button>
@@ -46,7 +68,7 @@
                         <input type="password" id="login-password" placeholder="" required>
                     </label>
                     <div id="login-error" class="auth-error hidden"></div>
-                    <button type="submit" class="btn primary auth-submit-btn" data-en="Login" data-zh="登录">Login</button>
+                    <button type="submit" class="btn primary auth-submit-btn" data-en="AUTHENTICATE" data-zh="认 证">AUTHENTICATE</button>
                 </form>
 
                 <!-- Register Form -->
@@ -64,11 +86,27 @@
                         <input type="password" id="register-password" placeholder="" required minlength="6">
                     </label>
                     <div id="register-error" class="auth-error hidden"></div>
-                    <button type="submit" class="btn primary auth-submit-btn" data-en="Create Account" data-zh="创建账号">Create Account</button>
+                    <button type="submit" class="btn primary auth-submit-btn" data-en="INITIALIZE ACCOUNT" data-zh="初始化账号">INITIALIZE ACCOUNT</button>
                 </form>
             </div>
 
             <p class="auth-gate-footer" data-en="ECG · EEG · EMG — Upload, Analyze, Train" data-zh="ECG · EEG · EMG — 上传、分析、训练">ECG · EEG · EMG — Upload, Analyze, Train</p>
+
+            <!-- Bottom signal bar -->
+            <div class="signal-bar">
+                <svg class="signal-bar-svg" viewBox="0 0 400 30" preserveAspectRatio="none">
+                    <path class="signal-bar-wave" d="M0 15 L20 15 L25 5 L30 25 L35 2 L40 25 L45 8 L50 15 L80 15 L85 5 L90 25 L95 2 L100 25 L105 8 L110 15 L140 15 L145 5 L150 25 L155 2 L160 25 L165 8 L170 15 L200 15 L205 5 L210 25 L215 2 L220 25 L225 8 L230 15 L260 15 L265 5 L270 25 L275 2 L280 25 L285 8 L290 15 L320 15 L325 5 L330 25 L335 2 L340 25 L345 8 L350 15 L400 15" fill="none" stroke="url(#signal-grad)" stroke-width="1.5"/>
+                    <defs>
+                        <linearGradient id="signal-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <stop offset="0%" stop-color="#22d3ee" stop-opacity="0"/>
+                            <stop offset="30%" stop-color="#22d3ee" stop-opacity="0.6"/>
+                            <stop offset="50%" stop-color="#6366f1" stop-opacity="0.8"/>
+                            <stop offset="70%" stop-color="#f472b6" stop-opacity="0.6"/>
+                            <stop offset="100%" stop-color="#f472b6" stop-opacity="0"/>
+                        </linearGradient>
+                    </defs>
+                </svg>
+            </div>
         </div>
     </div>
 
@@ -520,7 +558,8 @@
 
     </div><!-- end #app-wrapper -->
 
-    <script src="js/auth.js?v=2"></script>
+    <script src="js/login-animations.js?v=1"></script>
+    <script src="js/auth.js?v=3"></script>
     <script src="js/uploader.js?v=3"></script>
     <script src="js/visualizer.js?v=3"></script>
     <script src="js/results.js?v=3"></script>
