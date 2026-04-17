@@ -153,6 +153,10 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:6px"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
                 <span data-en="Train" data-zh="模型训练">Train</span>
             </button>
+            <button class="mode-tab" data-mode="monitor" onclick="App.switchMode('monitor')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:6px"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+                <span data-en="Monitor" data-zh="实时监测">Monitor</span>
+            </button>
         </div>
 
         <!-- ═══════════════ ANALYZE MODE ═══════════════ -->
@@ -229,6 +233,18 @@
                 <button id="export-csv-btn" class="btn secondary" data-en="Export CSV" data-zh="导出 CSV">Export CSV</button>
                 <button id="new-analysis-btn" class="btn primary" data-en="New Analysis" data-zh="新建分析">New Analysis</button>
             </div>
+        </section>
+
+        <!-- Step 5: Grad-CAM Attention Heatmap -->
+        <section id="gradcam-section" class="card hidden">
+            <h2 data-en="5. Grad-CAM Attention Heatmap" data-zh="5. Grad-CAM 注意力热力图">5. Grad-CAM Attention Heatmap</h2>
+            <p class="section-hint" data-en="Visualize which signal regions the CNN focuses on for its prediction. Red = high attention." data-zh="可视化 CNN 关注的信号区域，红色 = 高注意力。">
+                Visualize which signal regions the CNN focuses on for its prediction. Red = high attention.
+            </p>
+            <div id="gradcam-status" class="status hidden"></div>
+            <div id="gradcam-controls" class="gradcam-controls"></div>
+            <div id="gradcam-chart" class="chart-container" style="height:360px;"></div>
+            <div id="gradcam-info" class="gradcam-info"></div>
         </section>
 
         </div><!-- end #analyze-mode -->
@@ -467,6 +483,18 @@
             </div>
         </section>
 
+        <!-- Train Step 5.5: Grad-CAM Attention Heatmap -->
+        <section id="train-gradcam-section" class="card hidden">
+            <h2 data-en="T5.5 Grad-CAM Attention Heatmap" data-zh="T5.5 Grad-CAM 注意力热力图">T5.5 Grad-CAM Attention Heatmap</h2>
+            <p class="section-hint" data-en="Visualize which signal regions the trained CNN focuses on. Computed on validation samples." data-zh="可视化训练后 CNN 关注的信号区域，基于验证集样本计算。">
+                Visualize which signal regions the trained CNN focuses on. Computed on validation samples.
+            </p>
+            <div id="train-gradcam-status" class="status hidden"></div>
+            <div id="train-gradcam-controls" class="gradcam-controls"></div>
+            <div id="train-gradcam-chart" class="chart-container" style="height:360px;"></div>
+            <div id="train-gradcam-info" class="gradcam-info"></div>
+        </section>
+
         <!-- Train Step 6: Publication-Quality Figures -->
         <section id="train-figures-section" class="card hidden">
             <h2 data-en="T6. Publication-Quality Figures" data-zh="T6. 出版质量图表">T6. Publication-Quality Figures</h2>
@@ -550,6 +578,114 @@
 
         </div><!-- end #train-mode -->
 
+        <!-- ═══════════════ MONITOR MODE (Real-time Streaming) ═══════════════ -->
+        <div id="monitor-mode" class="hidden">
+
+        <section class="card">
+            <h2 data-en="Real-time Signal Monitor" data-zh="实时信号监测">Real-time Signal Monitor</h2>
+            <p class="section-hint" data-en="Stream biosignal data from wearable devices or demo simulation. Real-time inference with anomaly alerting." data-zh="从可穿戴设备或演示模拟中流式传输生物信号数据。实时推理与异常警报。">
+                Stream biosignal data from wearable devices or demo simulation. Real-time inference with anomaly alerting.
+            </p>
+
+            <!-- Connection config -->
+            <div class="stream-config-bar">
+                <label>
+                    <span data-en="Model:" data-zh="模型:">Model:</span>
+                    <select id="stream-model-select">
+                        <option value="ecg_arrhythmia" data-en="ECG Arrhythmia (5-class)" data-zh="ECG 心律失常 (5类)">ECG Arrhythmia (5-class)</option>
+                        <option value="eeg_sleep" data-en="EEG Sleep Staging (5-class)" data-zh="EEG 睡眠分期 (5类)">EEG Sleep Staging (5-class)</option>
+                        <option value="emg_gesture" data-en="EMG Gesture (53-class)" data-zh="EMG 手势 (53类)">EMG Gesture (53-class)</option>
+                    </select>
+                </label>
+                <label>
+                    <span data-en="Source:" data-zh="数据源:">Source:</span>
+                    <select id="stream-mode-select">
+                        <option value="demo" data-en="Demo (Synthetic)" data-zh="演示 (合成信号)">Demo (Synthetic)</option>
+                        <option value="device" data-en="Device (WebSocket)" data-zh="设备 (WebSocket)">Device (WebSocket)</option>
+                    </select>
+                </label>
+                <label>
+                    <span data-en="Heart Rate:" data-zh="心率:">Heart Rate:</span>
+                    <input type="number" id="stream-hr-input" value="72" min="40" max="200" style="width:70px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text);">
+                    <small>BPM</small>
+                </label>
+                <div class="stream-btn-group">
+                    <button id="stream-start-btn" class="btn primary" onclick="Streaming.start(
+                        document.getElementById('stream-model-select').value,
+                        document.getElementById('stream-mode-select').value,
+                        { heart_rate: parseInt(document.getElementById('stream-hr-input').value) || 72 }
+                    )" data-en="Start" data-zh="开始监测">Start</button>
+                    <button id="stream-stop-btn" class="btn secondary" disabled onclick="Streaming.stop()" data-en="Stop" data-zh="停止">Stop</button>
+                </div>
+            </div>
+            <div id="stream-status" class="status hidden"></div>
+        </section>
+
+        <!-- Live Dashboard -->
+        <section id="stream-dashboard" class="card">
+            <div class="stream-dashboard-grid">
+                <!-- Left: Signal Chart -->
+                <div class="stream-signal-panel">
+                    <div class="stream-panel-header">
+                        <h3 data-en="Live Signal" data-zh="实时信号">Live Signal</h3>
+                        <span id="stream-signal-indicator" class="stream-live-dot"></span>
+                    </div>
+                    <div id="stream-signal-chart" class="chart-container" style="height:260px;"></div>
+                </div>
+
+                <!-- Right: Prediction + Distribution -->
+                <div class="stream-pred-panel">
+                    <div class="stream-panel-header">
+                        <h3 data-en="Latest Prediction" data-zh="最新预测">Latest Prediction</h3>
+                    </div>
+                    <div id="stream-latest-pred" class="stream-latest-pred">
+                        <div class="stream-pred-placeholder" data-en="Waiting for data..." data-zh="等待数据中...">Waiting for data...</div>
+                    </div>
+                    <div class="stream-panel-header" style="margin-top:1rem;">
+                        <h3 data-en="Class Distribution" data-zh="类别分布">Class Distribution</h3>
+                    </div>
+                    <div id="stream-dist-chart" class="chart-container" style="height:180px;"></div>
+                </div>
+            </div>
+
+            <!-- Stats bar -->
+            <div id="stream-stats" class="stream-stats-bar">
+                <div class="stream-stat-item">
+                    <span class="stream-stat-value">0:00</span>
+                    <span class="stream-stat-label" data-en="Elapsed" data-zh="运行时间">Elapsed</span>
+                </div>
+                <div class="stream-stat-item">
+                    <span class="stream-stat-value">0</span>
+                    <span class="stream-stat-label" data-en="Samples" data-zh="总样本数">Samples</span>
+                </div>
+                <div class="stream-stat-item">
+                    <span class="stream-stat-value">0</span>
+                    <span class="stream-stat-label" data-en="Predictions" data-zh="预测次数">Predictions</span>
+                </div>
+                <div class="stream-stat-item">
+                    <span class="stream-stat-value">0</span>
+                    <span class="stream-stat-label" data-en="Eff. SR (Hz)" data-zh="有效采样率">Eff. SR (Hz)</span>
+                </div>
+                <div class="stream-stat-item">
+                    <span class="stream-stat-value">0</span>
+                    <span class="stream-stat-label" data-en="Alerts" data-zh="异常警报">Alerts</span>
+                </div>
+            </div>
+
+            <!-- Alerts log -->
+            <div class="stream-alerts-section">
+                <div class="stream-panel-header">
+                    <h3 data-en="Anomaly Alerts" data-zh="异常警报">Anomaly Alerts</h3>
+                    <span id="stream-alert-count" class="stream-alert-badge hidden">0</span>
+                </div>
+                <div id="stream-alert-log" class="stream-alert-log">
+                    <div class="stream-alert-empty" data-en="No alerts — all predictions normal." data-zh="暂无警报 — 所有预测正常。">No alerts — all predictions normal.</div>
+                </div>
+            </div>
+        </section>
+
+        </div><!-- end #monitor-mode -->
+
     </main>
 
     <footer>
@@ -563,6 +699,8 @@
     <script src="js/uploader.js?v=3"></script>
     <script src="js/visualizer.js?v=3"></script>
     <script src="js/results.js?v=3"></script>
+    <script src="js/gradcam.js?v=1"></script>
+    <script src="js/streaming.js?v=1"></script>
     <script src="js/trainer.js?v=4"></script>
     <script src="js/figures.js?v=1"></script>
     <script src="js/app.js?v=5"></script>
