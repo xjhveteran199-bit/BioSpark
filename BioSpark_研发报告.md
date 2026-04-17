@@ -1,6 +1,6 @@
 # BioSpark 项目研发报告
 
-> **版本:** v0.6.0 | **日期:** 2026-04-15 | **状态:** 已上线运营
+> **版本:** v0.7.0 | **日期:** 2026-04-16 | **状态:** 已上线运营
 
 ---
 
@@ -24,47 +24,50 @@
 | 层级 | 技术 | 说明 |
 |------|------|------|
 | **后端框架** | FastAPI + Uvicorn | 异步 Python Web 框架，支持 WebSocket |
-| **用户认证** | JWT + bcrypt | 🆕 注册/登录/Token 鉴权 |
-| **数据库** | SQLAlchemy + PostgreSQL/SQLite | 🆕 异步 ORM，开发用 SQLite，生产用 PostgreSQL |
+| **用户认证** | JWT + bcrypt | 注册/登录/Token 鉴权 |
+| **数据库** | SQLAlchemy + PostgreSQL/SQLite | 异步 ORM，开发用 SQLite，生产用 PostgreSQL |
 | **深度学习** | PyTorch 2.x (CPU) | 1D-CNN 训练与推理 |
+| **模型可解释性** | 🆕 Grad-CAM (Hook-based) | PyTorch forward/backward hook 提取注意力热力图 |
 | **信号处理** | NeuroKit2 / MNE / SciPy | ECG R-peak 检测、EEG 分段、EMG 滤波 |
+| **实时信号处理** | 🆕 SOS Butterworth 滤波 | 二阶节带通滤波，适用于流式低延迟场景 |
 | **数据分析** | NumPy / Pandas / Scikit-learn | t-SNE、混淆矩阵、特征提取 |
 | **科研可视化** | Matplotlib / Seaborn | 300 DPI PNG + SVG 出版质量图表 |
 | **推理引擎** | PyTorch + ONNX Runtime | .pt 主力推理 + 浏览器端 ONNX |
-| **前端** | 原生 HTML/CSS/JS + Plotly.js + Canvas | 零构建步骤，交互式可视化，🆕 Canvas 粒子动画 |
+| **实时通信** | 🆕 WebSocket (FastAPI native) | 双向流式推理，支持 Demo/Device 双模式 |
+| **前端** | 原生 HTML/CSS/JS + Plotly.js + Canvas | 零构建步骤，交互式可视化，Canvas 粒子动画 |
 | **部署** | Docker / Railway / Vercel | 容器化 + Serverless 双模式 |
 
 ### 2.2 系统架构图
 
 ```
-+--------------------------------------------------------------+
-|                        前端 (Vanilla JS)                      |
-|  +----------+ +----------+ +----------+ +------------------+ |
-|  | 登录/注册 | | 文件上传  | | 推理结果  | | 训练控制台(WS)   |  ← v0.6 科幻UI
-|  +----+-----+ +----+-----+ +----+-----+ +--------+---------+ |
-|  | 图表预览  | | 信号可视化| | 下载管理  | | 自动优化配置     | |
-|  +----+-----+ +----+-----+ +----+-----+ +--------+---------+ |
-+-------+------------+------------+-----------------+----------+
-        | REST API   | Plotly.js  | REST API        | WebSocket
-        | + JWT Auth |            | + JWT Auth      |
-+-------+------------+------------+-----------------+----------+
-|                     FastAPI 后端                               |
-|  +----------+ +----------+ +----------+ +------------------+ |
-|  |用户认证   | |格式解析器 | |模型推理器 | | CNN训练引擎      | |
-|  |JWT/bcrypt | |CSV/EDF/  | |PyTorch/  | | Signal1DCNN      | |
-|  |← v0.5新增 | |MAT/ZIP   | |ONNX/Demo | | + 自动超参优化    | |
-|  +----------+ +----------+ +----------+ +------------------+ |
-|  +----------+ +----------+ +----------+                       |
-|  |出版图表   | |架构图生成 | |信号预处理 |                      |
-|  |Matplotlib | |纯Patches | |ECG/EEG/  |                      |
-|  +----------+ +----------+ |EMG多通道  |                      |
-|                             +----------+                      |
-+-------------------------------+------------------------------+
-                                |
-                    +-----------+-----------+
-                    |  PostgreSQL / SQLite   |  ← v0.5 新增
-                    |  users, sessions       |
-                    +-----------------------+
++------------------------------------------------------------------------+
+|                           前端 (Vanilla JS)                             |
+|  +----------+ +----------+ +----------+ +-----------+ +--------------+ |
+|  | 登录/注册 | | 文件上传  | | 推理结果  | | 训练控制台 | | 🆕 实时监控   | |
+|  +----+-----+ +----+-----+ +----+-----+ +-----+-----+ +------+-----+ |
+|  | 图表预览  | | 信号可视化| | 下载管理  | |自动优化配置| |🆕Grad-CAM  | |
+|  +----+-----+ +----+-----+ +----+-----+ +-----+-----+ +------+-----+ |
++-------+------------+------------+-------------+---------------+-------+
+        | REST API   | Plotly.js  | REST API    | WebSocket     | 🆕 WS
+        | + JWT Auth |            | + JWT Auth  | (训练监控)     | (流式推理)
++-------+------------+------------+-------------+---------------+-------+
+|                          FastAPI 后端                                    |
+|  +----------+ +----------+ +----------+ +----------+ +--------------+  |
+|  |用户认证   | |格式解析器 | |模型推理器 | |CNN训练引擎| |🆕流式推理引擎 |  |
+|  |JWT/bcrypt | |CSV/EDF/  | |PyTorch/  | |Signal1D  | |StreamSession |  |
+|  |           | |MAT/ZIP   | |ONNX/Demo | |CNN+优化   | |SOS滤波+滑窗  |  |
+|  +----------+ +----------+ +----------+ +----------+ +--------------+  |
+|  +----------+ +----------+ +----------+ +----------------------------+ |
+|  |出版图表   | |架构图生成 | |信号预处理 | |🆕 Grad-CAM 注意力分析引擎  | |
+|  |Matplotlib | |纯Patches | |ECG/EEG/  | |PyTorch Hook + 梯度加权     | |
+|  +----------+ +----------+ |EMG多通道  | +----------------------------+ |
+|                             +----------+                                |
++-----------------------------------+------------------------------------+
+                                    |
+                        +-----------+-----------+
+                        |  PostgreSQL / SQLite   |
+                        |  users, sessions       |
+                        +-----------------------+
 ```
 
 ---
@@ -202,7 +205,142 @@
 
 ---
 
-## 五、v0.6 新增功能（科幻登录页重设计）
+## 五、v0.7 新增功能（模型可解释性 + 实时流式推理）
+
+### 5.1 Grad-CAM 注意力热力图
+
+> **新增模块：** `backend/services/gradcam.py` + `frontend/js/gradcam.js`
+
+基于梯度加权类激活映射（Gradient-weighted Class Activation Mapping）的 1D-CNN 可解释性系统。可视化模型在做出分类决策时"关注"的信号区域，帮助科研人员理解和信任模型行为。
+
+**核心原理：**
+
+```
+Input Signal → Forward Pass → Target Layer Activations
+                                      ↓
+           Backward Pass ← One-hot Target Class Gradient
+                                      ↓
+         GAP(Gradients) → Weights → Σ(Weight × Activation)
+                                      ↓
+                    ReLU → Upsample(interp) → Attention Heatmap [0,1]
+```
+
+**技术实现：**
+
+| 组件 | 技术方案 | 说明 |
+|------|---------|------|
+| **激活捕获** | `register_forward_hook()` | 自动定位最后一层 Conv1d，捕获前向传播特征图 |
+| **梯度捕获** | `register_full_backward_hook()` | 捕获目标类别反向传播梯度 |
+| **权重计算** | Global Average Pooling | 对梯度沿空间维度取均值，得到各通道权重 |
+| **热力图生成** | 加权求和 + ReLU + 线性插值上采样 | 从 feature_map_size → input_length |
+| **批量计算** | `compute_gradcam_for_segments()` | 支持多段信号并行计算 |
+| **自动层检测** | `_find_last_conv()` | 递归搜索模型最后一个 Conv1d 层 |
+
+**前端可视化：**
+
+| 功能 | 实现 | 说明 |
+|------|------|------|
+| **双轴叠加图** | Plotly 主轴(信号) + 次轴(注意力) | 信号曲线 + 蓝→红色注意力散点 |
+| **高注意力区域标注** | 红色半透明矩形 shapes | 阈值 > 0.7 的连续高注意力区域自动标注 |
+| **信息面板** | 3 列网格 | 预测结果、类别概率、Top-3 注意力区域 |
+| **段选择器** | 下拉菜单 | 切换不同信号段的 Grad-CAM 结果 |
+| **目标类别选择** | 下拉菜单 | 查看模型对不同类别的注意力差异 |
+
+**API 端点：**
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/gradcam/{file_id}` | POST | 对上传文件计算 Grad-CAM（参数：model_id, channel, target_class, max_segments） |
+| `/api/train/{job_id}/gradcam` | GET | 对训练任务验证集样本计算 Grad-CAM |
+
+### 5.2 实时流式推理（WebSocket）
+
+> **新增模块：** `backend/services/streaming.py` + `backend/routers/streaming.py` + `frontend/js/streaming.js`
+
+面向可穿戴设备和实时监测场景的流式推理系统。通过 WebSocket 双向通信，实现信号的实时接收、预处理、推理和告警。
+
+**系统架构：**
+
+```
+可穿戴设备/Demo生成器
+        │
+        ▼ (WebSocket JSON)
+  ┌─────────────────────────────┐
+  │     StreamingSession        │
+  │  ┌───────────────────────┐  │
+  │  │ Deque Buffer          │  │  ← samples 持续追加
+  │  │ (maxlen = seg_len×4)  │  │
+  │  └───────────┬───────────┘  │
+  │              ▼              │
+  │  ┌───────────────────────┐  │
+  │  │ SOS Bandpass Filter   │  │  ← 实时二阶节带通滤波
+  │  │ (scipy sosfilt)       │  │
+  │  └───────────┬───────────┘  │
+  │              ▼              │
+  │  ┌───────────────────────┐  │
+  │  │ Sliding Window Infer  │  │  ← 每 stride 个样本触发一次
+  │  │ stride = seg_len/2    │  │
+  │  └───────────┬───────────┘  │
+  │              ▼              │
+  │  ┌───────────────────────┐  │
+  │  │ Alert Detection       │  │  ← 可配置类别+置信度阈值
+  │  └───────────────────────┘  │
+  └─────────────────────────────┘
+        │
+        ▼ (WebSocket JSON)
+  前端 Monitor 仪表盘
+```
+
+**双模式支持：**
+
+| 模式 | 数据源 | 说明 |
+|------|--------|------|
+| **Demo 模式** | 服务端合成信号 | 内置 ECG PQRST 波形生成器（含 PVC 异常注入）+ EEG 多频段合成 |
+| **Device 模式** | 客户端推送 | 可穿戴设备/采集卡通过 WebSocket 发送原始样本 |
+
+**合成信号生成器：**
+
+| 类型 | 算法 | 说明 |
+|------|------|------|
+| **ECG** | PQRST 高斯组合波形 | P波+QRS复合波+T波，支持心率配置，~5% 概率注入 PVC 异常 |
+| **EEG** | 多频段正弦叠加 | Delta(0.5-4Hz) + Theta(4-8Hz) + Alpha(8-13Hz) + Beta(13-30Hz) |
+
+**信号处理参数（按信号类型）：**
+
+| 参数 | ECG | EEG | EMG |
+|------|-----|-----|-----|
+| 默认采样率 | 360 Hz | 100 Hz | 200 Hz |
+| 段长度 | 187 samples | 3000 samples | 80 samples |
+| 推理步进 | 93 (~50%) | 500 (~17%) | 40 (50%) |
+| 带通范围 | 0.5–40 Hz | 0.5–45 Hz | 20–450 Hz |
+
+**WebSocket 通信协议：**
+
+| 方向 | 消息类型 | 说明 |
+|------|---------|------|
+| Client→Server | `start` | 启动会话（model_id, mode, sampling_rate, heart_rate） |
+| Client→Server | `samples` | 推送原始样本（Device 模式） |
+| Client→Server | `stop` | 停止流式推理 |
+| Client→Server | `configure_alerts` | 配置告警类别和置信度阈值 |
+| Server→Client | `config` | 连接成功配置信息（模型/类别/采样率） |
+| Server→Client | `samples` | 转发信号数据（用于前端绘图） |
+| Server→Client | `prediction` | 实时推理结果（类别/置信度/概率分布） |
+| Server→Client | `alert` | 异常告警通知（高置信度异常检测） |
+| Server→Client | `stats` | 会话统计（样本数/预测数/有效采样率） |
+
+**前端 Monitor 仪表盘：**
+
+| 组件 | 技术 | 说明 |
+|------|------|------|
+| **实时信号图** | Plotly.js scattergl + setInterval(80ms) | ~12 FPS 滚动信号波形，2000 样本显示窗口 |
+| **实时预测面板** | DOM 动态更新 | 当前预测类别 + 各类概率横条图 |
+| **类别分布饼图** | Plotly.js donut chart | 实时更新的预测类别分布统计 |
+| **告警日志** | 带动画的告警条目列表 | slide-in 动画 + 脉冲徽章计数器 |
+| **会话统计栏** | 5 指标面板 | 运行时间/样本数/预测数/有效采样率/告警数 |
+
+---
+
+## 六、v0.6 新增功能（科幻登录页重设计）
 
 ### 5.1 "神经网关" 沉浸式登录体验
 
@@ -220,9 +358,9 @@
 
 ---
 
-## 六、v0.5 功能（P0 用户认证系统）
+## 七、v0.5 功能（P0 用户认证系统）
 
-### 6.0.1 JWT 用户认证
+### 7.0.1 JWT 用户认证
 
 > **新增模块：** `backend/auth.py` + `backend/routers/auth.py` + `backend/database.py` + `backend/models/user.py`
 
@@ -243,7 +381,7 @@
 | `/api/auth/login` | POST | 登录（username/email + password）→ 返回 JWT |
 | `/api/auth/me` | GET | 获取当前用户信息（需 Bearer Token） |
 
-### 6.0.2 数据库层
+### 7.0.2 数据库层
 
 > **新增模块：** `backend/database.py` — SQLAlchemy 异步 ORM
 
@@ -261,7 +399,7 @@
 
 应用启动时自动执行 `init_db()` 创建表结构，无需手动迁移。
 
-### 6.0.3 前端认证 UI
+### 7.0.3 前端认证 UI
 
 > **模块：** `frontend/js/auth.js` + `frontend/js/login-animations.js`（🆕 v0.6 新增）
 
@@ -298,9 +436,9 @@
 
 ---
 
-## 七、全部已完成功能
+## 八、全部已完成功能
 
-### 7.1 推理分析模块
+### 8.1 推理分析模块
 
 | 功能 | 状态 | 说明 |
 |------|------|------|
@@ -312,24 +450,28 @@
 | 多通道 EMG 推理 | ✅ | 16 通道 sEMG 输入，自动预处理 |
 | 置信度分析 | ✅ | 逐段预测 + 概率分布 + 汇总统计 |
 | 结果导出 | ✅ | JSON / CSV 格式导出 |
+| 🆕 **Grad-CAM 注意力热力图** | ✅ | **PyTorch Hook 捕获梯度，双轴叠加可视化，高注意力区域标注** |
+| 🆕 **实时流式推理** | ✅ | **WebSocket 双向通信，滑窗推理，Demo/Device 双模式** |
+| 🆕 **异常告警系统** | ✅ | **可配置告警类别+置信度阈值，实时告警通知** |
 
-### 7.2 模型训练模块（Phase 1-6）
+### 8.2 模型训练模块（Phase 1-7）
 
 | 阶段 | 功能 | 说明 |
 |------|------|------|
 | **Phase 1** | 标注数据上传 | CSV（含 label 列）或 ZIP（文件夹分类）|
 | **Phase 2** | CNN 训练引擎 | 可配置 epochs、lr、batch_size、val_split、n_channels |
 | **Phase 2** | 实时训练监控 | WebSocket 推送每轮 loss/accuracy，Plotly 实时绘图 |
-| **Phase 2** | **🆕 自动超参优化** | **LR finder + 架构自适应 + 类别权重 + Early Stopping** |
+| **Phase 2** | 自动超参优化 | LR finder + 架构自适应 + 类别权重 + Early Stopping |
 | **Phase 3** | 混淆矩阵 | 热力图 + 计数/百分比切换 + 每类 P/R/F1 |
 | **Phase 3** | t-SNE 可视化 | 倒数第二层特征 → 2维散点图 |
 | **Phase 4** | 模型导出 | .pt 模型文件、训练历史 JSON |
 | **Phase 4** | HTML 报告 | 自包含 Plotly 图表的完整训练报告 |
 | **Phase 5** | 多通道支持 | 自动检测 ch{N}_ 前缀列，Conv1d 多通道输入 |
-| **Phase 6** | **🆕 出版质量图表** | **5种图表 × 3种期刊样式 × PNG+SVG，一键ZIP下载** |
-| **Phase 6** | **🆕 模型架构图** | **自动生成 CNN 结构示意图，可直接用于论文** |
+| **Phase 6** | 出版质量图表 | 5种图表 × 3种期刊样式 × PNG+SVG，一键ZIP下载 |
+| **Phase 6** | 模型架构图 | 自动生成 CNN 结构示意图，可直接用于论文 |
+| **Phase 7** | 🆕 **训练后 Grad-CAM** | **验证集样本注意力分析，含真实标签对比** |
 
-### 7.3 UI/UX
+### 8.3 UI/UX
 
 - **暗色科技风主题**：深色背景(#0f172a)、毛玻璃卡片、霓虹青/粉色调
 - **Plotly 深色适配**：所有图表统一深色主题
@@ -338,20 +480,23 @@
 - **Auto-Optimize 开关**：训练配置区一键启用自动优化
 - **期刊样式选择器**：Nature / IEEE / Science 三种学术风格一键切换
 - **图表预览面板**：T6 区块展示 5 张出版级图表，逐图 PNG/SVG 下载
-- 🆕 **用户认证 UI**：Header 登录/注册按钮 + 模态弹窗，登录后显示用户名
-- 🆕 **科幻登录页**：Canvas 粒子神经网络 + ECG/EEG 波形动画 + HUD 面板 + 鼠标交互光效（v0.6）
+- **用户认证 UI**：Header 登录/注册按钮 + 模态弹窗，登录后显示用户名
+- **科幻登录页**：Canvas 粒子神经网络 + ECG/EEG 波形动画 + HUD 面板 + 鼠标交互光效
+- 🆕 **Grad-CAM 可视化面板**：双轴信号+注意力叠加图、段选择器、类别选择器、3列信息面板
+- 🆕 **Monitor 实时监控仪表盘**：实时信号图、预测概率条、分布饼图、告警日志、统计面板
+- 🆕 **三模式切换**：Analyze / Train / Monitor 顶部标签页一键切换
 
-### 7.4 部署
+### 8.4 部署
 
 | 平台 | 状态 | 功能范围 |
 |------|------|---------|
-| **Railway** | ✅ 已上线 | 全功能（推理+训练+WebSocket+出版图表+🆕 用户认证+PostgreSQL） |
+| **Railway** | ✅ 已上线 | 全功能（推理+训练+流式推理+Grad-CAM+出版图表+用户认证+PostgreSQL） |
 | **Vercel** | ✅ 已上线 | 前端 + 轻量 API |
-| **Docker** | ✅ 可用 | 本地/私有云一键部署（🆕 含 PostgreSQL 服务） |
+| **Docker** | ✅ 可用 | 本地/私有云一键部署（含 PostgreSQL 服务） |
 
 ---
 
-## 八、CNN 模型架构详情
+## 九、CNN 模型架构详情
 
 ### Signal1DCNN（通用训练架构，v0.4 升级）
 
@@ -410,9 +555,9 @@ Output: 53-class probabilities  |  Params: 388K
 
 ---
 
-## 九、API 接口清单
+## 十、API 接口清单
 
-### 9.1 推理 API
+### 10.1 推理 API
 
 | 端点 | 方法 | 功能 |
 |------|------|------|
@@ -421,18 +566,19 @@ Output: 53-class probabilities  |  Params: 388K
 | `/api/upload` | POST | 上传并解析信号文件 |
 | `/api/analyze/{id}` | POST | 运行模型推理（支持多通道） |
 
-### 9.2 训练 API
+### 10.2 训练 API
 
 | 端点 | 方法 | 功能 |
 |------|------|------|
 | `/api/train/upload` | POST | 上传标注训练数据集 |
-| `/api/train/start` | POST | 启动训练任务（🆕 支持 auto_mode） |
+| `/api/train/start` | POST | 启动训练任务（支持 auto_mode） |
 | `/api/train/ws/{id}` | WebSocket | 实时训练指标流 |
 | `/api/train/{id}/status` | GET | 轮询训练状态 |
 | `/api/train/{id}/confusion_matrix` | GET | 获取混淆矩阵 |
 | `/api/train/{id}/tsne` | GET | 获取 t-SNE 投影 |
+| `/api/train/{id}/gradcam` | GET | 🆕 训练后 Grad-CAM 注意力分析 |
 
-### 8.3 导出 API
+### 10.3 导出 API
 
 | 端点 | 方法 | 功能 |
 |------|------|------|
@@ -442,7 +588,7 @@ Output: 53-class probabilities  |  Params: 388K
 | `/api/train/{id}/export/tsne_csv` | GET | 下载 t-SNE CSV |
 | `/api/train/{id}/export/report` | GET | 下载 HTML 报告 |
 
-### 8.4 出版图表 API（v0.4 新增）
+### 10.4 出版图表 API（v0.4 新增）
 
 | 端点 | 方法 | 参数 | 功能 |
 |------|------|------|------|
@@ -455,7 +601,7 @@ Output: 53-class probabilities  |  Params: 388K
 
 **公共参数：** `style` = nature | ieee | science，`fmt` = png | svg
 
-### 8.5 🆕 用户认证 API（v0.5 新增）
+### 10.5 用户认证 API（v0.5 新增）
 
 | 端点 | 方法 | 请求体 | 功能 |
 |------|------|--------|------|
@@ -472,25 +618,59 @@ Output: 53-class probabilities  |  Params: 388K
 }
 ```
 
+### 10.6 🆕 Grad-CAM API（v0.7 新增）
+
+| 端点 | 方法 | 参数 | 功能 |
+|------|------|------|------|
+| `/api/gradcam/{file_id}` | POST | model_id, channel, target_class, max_segments | 对上传文件计算 Grad-CAM 注意力热力图 |
+| `/api/train/{job_id}/gradcam` | GET | max_segments | 对训练任务验证集计算 Grad-CAM |
+
+**响应格式：**
+```json
+{
+  "gradcam": [
+    {
+      "segment_index": 0,
+      "heatmap": [0.12, 0.34, ...],
+      "predicted_class": "Normal (N)",
+      "predicted_index": 0,
+      "confidence": 0.97,
+      "probabilities": {"Normal (N)": 0.97, ...}
+    }
+  ],
+  "classes": ["Normal (N)", "Supraventricular (S)", ...],
+  "signal_type": "ecg"
+}
+```
+
+### 10.7 🆕 实时流式推理 API（v0.7 新增）
+
+| 端点 | 方法 | 功能 |
+|------|------|------|
+| `/api/stream/ws` | WebSocket | 双向流式推理（JSON 协议，支持 demo/device 模式） |
+
+**WebSocket 消息协议：** 见第五章 5.2 节通信协议表。
+
 ---
 
-## 十、项目文件结构（v0.6）
+## 十一、项目文件结构（v0.7）
 
 ```
 backend/
 ├── main.py                       # FastAPI 主入口 + 路由注册 + Lifespan DB 初始化
 ├── config.py                     # MODEL_REGISTRY, PREPROCESS_CONFIG
-├── auth.py                       # 🆕 JWT 创建/验证、bcrypt 哈希、FastAPI 鉴权依赖
-├── database.py                   # 🆕 SQLAlchemy 异步引擎、Session 工厂、init_db()
+├── auth.py                       # JWT 创建/验证、bcrypt 哈希、FastAPI 鉴权依赖
+├── database.py                   # SQLAlchemy 异步引擎、Session 工厂、init_db()
 ├── routers/
-│   ├── auth.py                   # 🆕 用户认证 API（register/login/me）
+│   ├── auth.py                   # 用户认证 API（register/login/me）
 │   ├── upload.py                 # 文件上传解析
-│   ├── analysis.py               # 模型推理
+│   ├── analysis.py               # 模型推理 + 🆕 Grad-CAM 端点 + _prepare_segments()
 │   ├── models.py                 # 模型列表
-│   ├── training.py               # 训练 API + WebSocket (Phase 1-5)
-│   └── figures.py                # 出版图表 API (Phase 6)
+│   ├── training.py               # 训练 API + WebSocket + 🆕 训练后 Grad-CAM
+│   ├── figures.py                # 出版图表 API (Phase 6)
+│   └── streaming.py              # 🆕 WebSocket 流式推理端点（demo/device 模式）
 ├── models/
-│   ├── user.py                   # 🆕 User 数据库模型（SQLAlchemy ORM）
+│   ├── user.py                   # User 数据库模型（SQLAlchemy ORM）
 │   ├── ecg_arrhythmia_cnn.pt     # 94.1% 准确率
 │   ├── eeg_sleep_staging.pt      # 训练中
 │   └── emg_gesture_cnn.pt        # 42.7% 准确率
@@ -501,20 +681,24 @@ backend/
     ├── trainer.py                # Signal1DCNN + 训练循环（支持动态架构）
     ├── dataset_loader.py         # 标注数据集解析
     ├── auto_optimizer.py         # LR finder / Early Stopping / 类别权重 / 架构选择
-    └── publication_figures.py    # Matplotlib 出版图表渲染（5种）
+    ├── publication_figures.py    # Matplotlib 出版图表渲染（5种）
+    ├── gradcam.py                # 🆕 GradCAM1D — PyTorch Hook 注意力热力图引擎
+    └── streaming.py              # 🆕 StreamingSession — 流式推理 + 合成信号生成
 
 frontend/
-├── index.html                    # 主页（🔄 新增 auth-area 认证区域）
-├── css/style.css                 # 暗色主题（🔄 新增认证模态框样式）
+├── index.html                    # 主页（🔄 v0.7 新增 Grad-CAM 区块 + Monitor 模式）
+├── css/style.css                 # 暗色主题（🔄 v0.7 +385行 Grad-CAM/Streaming 样式）
 └── js/
     ├── auth.js                   # 认证模块（登录/注册/Token 管理/模态弹窗）
-    ├── login-animations.js       # 🆕 科幻登录页动画（Canvas粒子网络/波形/HUD）
-    ├── app.js                    # 语言切换、模式切换（🔄 Auth 初始化）
-    ├── uploader.js               # 推理文件上传（🔄 携带 Auth Headers）
+    ├── login-animations.js       # 科幻登录页动画（Canvas粒子网络/波形/HUD）
+    ├── app.js                    # 语言切换、模式切换（🔄 Monitor 模式 + Grad-CAM 触发）
+    ├── uploader.js               # 推理文件上传
     ├── visualizer.js             # Plotly 信号可视化
     ├── results.js                # 推理结果展示
-    ├── trainer.js                # 训练控制台（🔄 携带 Auth Headers）
-    └── figures.js                # 出版图表预览 + 下载
+    ├── trainer.js                # 训练控制台（🔄 训练后 Grad-CAM 调用）
+    ├── figures.js                # 出版图表预览 + 下载
+    ├── gradcam.js                # 🆕 Grad-CAM 双轴叠加可视化 + 信息面板
+    └── streaming.js              # 🆕 实时流式推理 WebSocket 客户端 + Monitor 仪表盘
 
 training/
 ├── train_ecg_arrhythmia.py       # MIT-BIH → 94.1%
@@ -525,31 +709,31 @@ training/
 
 ---
 
-## 十一、未来目标
+## 十二、未来目标
 
-### 10.1 短期目标（1-3 个月）
+### 12.1 短期目标（1-3 个月）
 
 | 目标 | 优先级 | 说明 |
 |------|--------|------|
 | **EEG 睡眠分期模型完善** | P0 | 完成 Sleep-EDF 训练，优化准确率 |
 | **EMG 模型精度提升** | P0 | 数据增强、注意力机制、per-subject fine-tuning |
-| **注意力热力图** | P1 | Grad-CAM 可视化 CNN 关注的信号区域 |
+| ~~注意力热力图~~ | ~~P1~~ | ✅ **v0.7 已完成** — Grad-CAM 1D 注意力可视化 |
 | ~~用户认证系统~~ | ~~P0~~ | ✅ **v0.5 已完成** — JWT + bcrypt + PostgreSQL |
 | ~~数据库集成~~ | ~~P0~~ | ✅ **v0.5 已完成** — SQLAlchemy async ORM + PostgreSQL |
 | **训练历史持久化** | P0 | 将训练记录关联用户，存入数据库（v0.5 基础设施已就绪） |
 | **批量处理 API** | P1 | 支持上传多文件批量分析 |
 
-### 10.2 中期目标（3-6 个月）
+### 12.2 中期目标（3-6 个月）
 
 | 目标 | 说明 |
 |------|------|
 | **预训练模型市场** | 用户可上传/分享训练好的模型 |
 | **HuggingFace 集成** | 接入 ECGFounder、U-Sleep 等社区模型 |
 | **数据增强策略** | 时间扭曲、噪声注入、窗口滑动等信号增强 |
-| **实时流式推理** | WebSocket 接入可穿戴设备实时数据流 |
+| ~~实时流式推理~~ | ✅ **v0.7 已完成** — WebSocket 流式推理 + Demo/Device 双模式 + 异常告警 |
 | **团队协作** | 多用户项目空间，共享数据集和模型 |
 
-### 10.3 长期愿景（6-12 个月）
+### 12.3 长期愿景（6-12 个月）
 
 | 目标 | 说明 |
 |------|------|
@@ -560,9 +744,9 @@ training/
 
 ---
 
-## 十二、盈利策略
+## 十三、盈利策略
 
-### 11.1 分层定价
+### 13.1 分层定价
 
 | 版本 | 价格 | 目标用户 | 核心功能 |
 |------|------|---------|---------|
@@ -570,7 +754,7 @@ training/
 | **专业版** | ¥99/月 | 研究者/小实验室 | 无限推理、CNN训练(GPU)、模型导出、出版图表 |
 | **企业版** | ¥4,999+/月 | 医院/医疗公司 | 私有部署、API批量调用、合规审计 |
 
-### 11.2 增值收入
+### 13.2 增值收入
 
 | 收入来源 | 模式 | 预估 |
 |----------|------|------|
@@ -581,9 +765,9 @@ training/
 
 ---
 
-## 十三、关键指标
+## 十四、关键指标
 
-### 12.1 技术指标
+### 14.1 技术指标
 
 | 指标 | 当前值 |
 |------|--------|
@@ -595,15 +779,18 @@ training/
 | EMG 支持手势数 | 52 种 + Rest |
 | EMG 输入通道数 | 16 通道 sEMG |
 | 支持信号格式数 | 4 种（CSV/EDF/MAT/TXT） |
-| API 端点数 | 27 个（🆕 +3 认证端点） |
+| API 端点数 | 31 个（🆕 +4：2 Grad-CAM + 1 Streaming WS + 1 训练Grad-CAM） |
 | 出版图表类型 | 5 种 |
 | 支持期刊样式 | 3 种（Nature/IEEE/Science） |
 | 图表输出分辨率 | 300 DPI PNG + SVG 矢量 |
-| 用户认证 | 🆕 JWT + bcrypt，24h Token 有效期 |
-| 数据库 | 🆕 PostgreSQL（生产）/ SQLite（开发） |
+| 用户认证 | JWT + bcrypt，24h Token 有效期 |
+| 数据库 | PostgreSQL（生产）/ SQLite（开发） |
+| 🆕 模型可解释性 | Grad-CAM 1D 注意力热力图（PyTorch Hook） |
+| 🆕 实时推理延迟 | ~50ms/prediction（滑窗推理 + SOS 滤波） |
+| 🆕 流式推理模式 | 2 种（Demo 合成信号 / Device 设备接入） |
 | Docker 镜像大小 | ~1.5 GB |
 
-### 12.2 项目进度
+### 14.2 项目进度
 
 | 里程碑 | 完成日期 | 内容 |
 |--------|---------|------|
@@ -613,11 +800,13 @@ training/
 | v0.2.2 — UI 重设计 | 2026-04-05 | 暗色科技风主题、Plotly 深色适配 |
 | v0.3 — 模型扩充 | 2026-04-06 | EEG 睡眠分期 + EMG 53类手势识别（NinaPro DB5 真实数据） |
 | v0.4 — 科研升级 | 2026-04-08 | 自动超参优化 + 出版质量图表(5种) + 模型架构图 + 3种期刊样式 |
-| **v0.5 — 用户系统** | **2026-04-14** | **JWT 用户认证 + PostgreSQL 数据库 + 前端登录/注册 UI** |
+| v0.5 — 用户系统 | 2026-04-14 | JWT 用户认证 + PostgreSQL 数据库 + 前端登录/注册 UI |
+| v0.6 — 科幻 UI | 2026-04-15 | 神经网关沉浸式登录页（12种动画 + Canvas 粒子网络） |
+| **v0.7 — 可解释性+实时** | **2026-04-16** | **Grad-CAM 注意力热力图 + WebSocket 流式推理 + Monitor 仪表盘 + 异常告警** |
 
 ---
 
-## 十四、v0.5 新增依赖
+## 十五、新增依赖
 
 | 包 | 版本 | 用途 |
 |---|------|------|
@@ -627,6 +816,8 @@ training/
 | python-jose[cryptography] | ≥3.3.0 | JWT Token 签发与验证 |
 | bcrypt | ≥4.0.0 | 密码哈希（直接使用，不依赖 passlib） |
 | pydantic[email] | ≥2.0.0 | EmailStr 验证 |
+
+**v0.7 新增依赖：** 无新增 pip 包（Grad-CAM 仅依赖已有的 PyTorch + NumPy，流式推理使用 FastAPI 内置 WebSocket + SciPy）
 
 **v0.4 已有依赖（保留）：** matplotlib ≥3.8.0, seaborn ≥0.13.0
 
@@ -640,7 +831,7 @@ training/
 
 ---
 
-## 十五、风险与应对
+## 十六、风险与应对
 
 | 风险 | 等级 | 应对策略 |
 |------|------|---------|
@@ -652,26 +843,28 @@ training/
 
 ---
 
-## 十六、总结
+## 十七、总结
 
-BioSpark v0.5 在 v0.4 科研功能的基础上，完成了**用户认证系统和数据库基础设施**的搭建，为后续多用户、训练历史持久化、商业化功能奠定了基础。
+BioSpark v0.7 在前版基础上新增了**模型可解释性（Grad-CAM 注意力热力图）**和**实时流式推理（WebSocket Monitor）**两大核心功能，平台从离线分析扩展到实时监测场景，同时通过可解释性技术增强了模型的可信度。
 
-**v0.5 核心价值：**
-1. **用户认证** — JWT 注册/登录，bcrypt 密码加密，24h Token 有效期
-2. **数据库层** — SQLAlchemy 异步 ORM，开发用 SQLite / 生产用 PostgreSQL，自动建表
-3. **前端集成** — Header 登录/注册按钮 + 模态弹窗，全局 API 请求携带 Auth Token
-4. **生产级部署** — Railway + PostgreSQL 插件，环境变量自动切换数据库
+**v0.7 核心价值：**
+1. **Grad-CAM 注意力热力图** — PyTorch Hook 自动捕获梯度，双轴叠加可视化，支持推理和训练两种场景，帮助科研人员理解 CNN 决策依据
+2. **实时流式推理** — WebSocket 双向通信，SOS 带通滤波 + 滑窗推理，Demo 合成信号（ECG PQRST + PVC 异常注入）和 Device 设备接入双模式
+3. **Monitor 仪表盘** — 12 FPS 实时信号图 + 预测概率条 + 分布饼图 + 告警日志 + 统计面板，临床级监护体验
+4. **异常告警系统** — 可配置告警类别和置信度阈值，脉冲动画徽章实时通知
 
 **平台核心竞争力：**
 1. **零代码门槛** — 浏览器即用，无需 Python/MATLAB 知识
 2. **三信号全覆盖** — ECG 心律失常 + EEG 睡眠分期 + EMG 手势识别
-3. **端到端训练** — 上传数据到导出模型 + 论文图表，6 步完成
+3. **端到端训练** — 上传数据到导出模型 + 论文图表，7 步完成
 4. **科研级输出** — 出版质量图表直接满足 Nature/IEEE/Science 投稿要求
 5. **真实数据验证** — 基于 MIT-BIH、NinaPro DB5 等权威数据集
-6. 🆕 **多用户支持** — 注册登录系统 + PostgreSQL 持久化，具备商业化基础
+6. **多用户支持** — 注册登录系统 + PostgreSQL 持久化，具备商业化基础
+7. 🆕 **模型可解释性** — Grad-CAM 注意力热力图，增强模型可信度和科研价值
+8. 🆕 **实时监护能力** — WebSocket 流式推理 + 异常告警，支持可穿戴设备接入
 
-**下一步重点：** 训练历史持久化（关联用户） → EMG 精度优化 → EEG 模型完成 → 实时流式推理 → 商业化。
+**下一步重点：** 训练历史持久化（关联用户） → EMG 精度优化 → EEG 模型完成 → 团队协作 → 商业化。
 
 ---
 
-*本报告由 BioSpark 团队编写，基于 v0.5.0 版本（2026-04-14）。*
+*本报告由 BioSpark 团队编写，基于 v0.7.0 版本（2026-04-16）。*
