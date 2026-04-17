@@ -10,6 +10,7 @@ from backend.database import init_db
 from backend.routers import training as training_router
 from backend.routers import figures as figures_router
 from backend.routers import auth as auth_router
+from backend.routers import streaming as streaming_router
 
 # These routers depend on scipy/onnxruntime — import gracefully for serverless
 try:
@@ -56,6 +57,7 @@ if _inference_available:
     app.include_router(models_router.router, prefix="/api", tags=["Models"])
 app.include_router(training_router.router, prefix="/api", tags=["Training"])
 app.include_router(figures_router.router, prefix="/api", tags=["Figures"])
+app.include_router(streaming_router.router, prefix="/api", tags=["Streaming"])
 
 # --- Serve frontend static assets (css/js/assets) under /static ---
 frontend_dir = Path(__file__).resolve().parent.parent / "frontend"

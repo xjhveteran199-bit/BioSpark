@@ -38,11 +38,14 @@ const App = {
         this.mode = mode;
         document.getElementById('analyze-mode').classList.toggle('hidden', mode !== 'analyze');
         document.getElementById('train-mode').classList.toggle('hidden', mode !== 'train');
+        document.getElementById('monitor-mode').classList.toggle('hidden', mode !== 'monitor');
         document.querySelectorAll('.mode-tab').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.mode === mode);
         });
         // Re-bind browse links after DOM toggle
         if (mode === 'train') Trainer._bindBrowseLink();
+        // Disconnect streaming when leaving monitor mode
+        if (mode !== 'monitor' && window.Streaming) Streaming.disconnect();
     },
 
     // --- Language Toggle ---
@@ -174,6 +177,11 @@ const App = {
             Results.show(result);
             document.getElementById('results-section').scrollIntoView({ behavior: 'smooth' });
 
+            // Auto-trigger Grad-CAM computation
+            if (window.GradCAM) {
+                GradCAM.fetchForAnalysis(Uploader.fileId, this.selectedModel, channel);
+            }
+
         } catch (err) {
             status.className = 'status error';
             status.textContent = `Error: ${err.message}`;
@@ -184,7 +192,7 @@ const App = {
 
     // --- Reset ---
     reset() {
-        ['preview-section', 'analysis-section', 'results-section'].forEach(id => {
+        ['preview-section', 'analysis-section', 'results-section', 'gradcam-section'].forEach(id => {
             document.getElementById(id).classList.add('hidden');
         });
 

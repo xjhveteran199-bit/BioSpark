@@ -268,6 +268,68 @@ async def get_tsne(job_id: str, perplexity: float = 30.0):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@router.get("/train/{job_id}/gradcam")
+async def get_gradcam(
+    job_id: str,
+    target_class: int | None = None,
+    max_segments: int = 20,
+):
+    """
+    Compute Grad-CAM attention heatmaps on validation samples from a
+    completed training job.  Returns per-segment heatmaps showing which
+    signal regions the trained CNN focuses on for its predictions.
+    """
+    job = _get_trainer().training_manager.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Training job not found.")
+    if job.status != "completed":
+        raise HTTPException(status_code=409, detail=f"Training not complete (status: {job.status}).")
+    if job.model is None or job.val_X is None:
+        raise HTTPException(status_code=409, detail="Model or validation data not available.")
+
+    try:
+        import numpy as np
+        from backend.services.gradcam import compute_gradcam_for_segments
+        from backend.services.trainer import _reshape_for_channels
+
+        # Use validation samples
+        X_val = job.val_X
+        n_channels = job.n_channels
+
+        # Reshape to individual segments: (N, total) → list of arrays
+        X_3d = _reshape_for_channels(X_val, n_channels)
+        segments = [X_3d[i] if n_channels > 1 else X_3d[i, 0] for i in range(X_3d.shape[0])]
+
+        results = compute_gradcam_for_segments(
+            model=job.model,
+            segments=segments,
+            in_channels=n_channels,
+            target_class=target_class,
+            max_segments=max_segments,
+        )
+
+        # Add ground-truth labels
+        for r in results:
+            idx = r["segment_idx"]
+            if idx < len(job.val_y):
+                true_label = int(job.val_y[idx])
+                r["true_class"] = true_label
+                r["true_class_name"] = job.class_names[true_label]
+            r["predicted_class_name"] = job.class_names[r["predicted_class"]]
+            r["target_class_name"] = job.class_names[r["target_class"]]
+
+        return {
+            "job_id": job_id,
+            "class_names": job.class_names,
+            "total_val_samples": len(X_val),
+            "computed_segments": len(results),
+            "n_channels": n_channels,
+            "gradcam": results,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 # ---------------------------------------------------------------------------
 # Phase 4 — Export endpoints
 # ---------------------------------------------------------------------------

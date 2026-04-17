@@ -425,6 +425,11 @@ const Trainer = (() => {
         const banner = document.getElementById('train-complete-banner');
         banner.innerHTML = banner.innerHTML.replace('Loading results…', '');
 
+        // Phase 5.5: Grad-CAM attention heatmaps
+        if (typeof GradCAM !== 'undefined') {
+            GradCAM.fetchForTraining(jobId);
+        }
+
         // Phase 6: Load publication-quality figures
         if (typeof Figures !== 'undefined') {
             Figures.loadPublicationFigures(jobId);
