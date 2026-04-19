@@ -14,6 +14,7 @@ const Trainer = (() => {
     let ws = null;           // WebSocket connection
     let totalEpochs = 30;
     let history = [];        // [{epoch, train_loss, val_loss, train_acc, val_acc}]
+    let selectedPreset = 'auto';  // v0.8: selected training preset
 
     const CLASS_COLORS = [
         '#06b6d4', '#a78bfa', '#34d399', '#fbbf24', '#f87171',
@@ -39,7 +40,7 @@ const Trainer = (() => {
 
         // Buttons
         document.getElementById('train-reset-btn').addEventListener('click', resetTrainer);
-        document.getElementById('train-next-btn').addEventListener('click', _showConfigSection);
+        document.getElementById('train-next-btn').addEventListener('click', _showGuidedSection);
         document.getElementById('train-start-btn').addEventListener('click', _startTraining);
 
         _bindBrowseLink();
@@ -220,16 +221,158 @@ const Trainer = (() => {
     }
 
     // ───────────────────────────────────────────────────────────
+    // v0.8 — Guided Mode Section
+    // ───────────────────────────────────────────────────────────
+
+    const _PRESET_META = {
+        auto:     { icon: '⚡', badge: 'Recommended', badge_zh: '推荐' },
+        fast:     { icon: '🔬', badge: null },
+        thorough: { icon: '🏆', badge: 'Best Accuracy', badge_zh: '最高精度' },
+        custom:   { icon: '⚙️', badge: null },
+    };
+
+    async function _showGuidedSection() {
+        const sec = document.getElementById('train-guided-section');
+        sec.classList.remove('hidden');
+
+        // Render preset cards from server (or use cached presets)
+        try {
+            const resp = await fetch(`${API_BASE}/train/presets`);
+            const data = await resp.json();
+            _renderModeCards(data.presets);
+        } catch (_) {
+            _renderModeCards(null);
+        }
+
+        sec.scrollIntoView({ behavior: 'smooth' });
+
+        // Kick off data quality assessment in background
+        if (datasetId) _assessDataQuality(datasetId);
+    }
+
+    function _renderModeCards(presets) {
+        const grid = document.getElementById('train-mode-cards');
+        const isZh = App.lang === 'zh';
+        const keys = ['auto', 'fast', 'thorough', 'custom'];
+
+        if (!presets) {
+            grid.innerHTML = '<p style="color:var(--text-secondary);font-size:0.85rem;">Could not load presets. Using Custom mode.</p>';
+            _selectPreset('custom');
+            _showConfigSection();
+            return;
+        }
+
+        grid.innerHTML = keys.map(key => {
+            const p = presets[key];
+            const meta = _PRESET_META[key] || { icon: '◆', badge: null };
+            const title = isZh ? p.label_zh : p.label_en;
+            const desc = isZh ? p.description_zh : p.description_en;
+            const time = isZh ? p.time_estimate_zh : p.time_estimate_en;
+            const badge = meta.badge ? `<span class="mode-badge">${isZh && meta.badge_zh ? meta.badge_zh : meta.badge}</span>` : '';
+            return `<div class="mode-card${key === selectedPreset ? ' selected' : ''}" data-preset="${key}" onclick="Trainer._selectPresetAndConfigure('${key}')">
+                ${badge}
+                <div class="mode-icon">${meta.icon}</div>
+                <div class="mode-title">${title}</div>
+                <div class="mode-desc">${desc}</div>
+                <div class="mode-time">${time}</div>
+            </div>`;
+        }).join('');
+    }
+
+    function _selectPresetAndConfigure(preset) {
+        _selectPreset(preset);
+        // Highlight selected card
+        document.querySelectorAll('.mode-card').forEach(c => {
+            c.classList.toggle('selected', c.dataset.preset === preset);
+        });
+        // Show config section after brief delay for visual feedback
+        setTimeout(() => _showConfigSection(preset), 150);
+    }
+
+    function _selectPreset(preset) {
+        selectedPreset = preset;
+    }
+
+    async function _assessDataQuality(dsId) {
+        const banner = document.getElementById('train-quality-banner');
+        try {
+            const aHeaders = window.Auth ? Auth.authHeaders() : {};
+            const resp = await fetch(`${API_BASE}/train/assess?dataset_id=${dsId}`, {
+                method: 'POST', headers: aHeaders,
+            });
+            if (!resp.ok) return;
+            const data = await resp.json();
+            _renderQualityBanner(banner, data);
+        } catch (_) {
+            // Silently skip quality assessment on error
+        }
+    }
+
+    function _renderQualityBanner(banner, data) {
+        const isZh = App.lang === 'zh';
+        const score = data.quality_score;
+        const issues = data.issues || [];
+
+        let scoreClass = 'excellent';
+        let scoreLabel = isZh ? '优秀' : 'Excellent';
+        if (score < 40)      { scoreClass = 'error';   scoreLabel = isZh ? '需修复' : 'Needs Fix'; }
+        else if (score < 65) { scoreClass = 'warning'; scoreLabel = isZh ? '有问题' : 'Issues'; }
+        else if (score < 85) { scoreClass = 'good';    scoreLabel = isZh ? '良好' : 'Good'; }
+
+        const scoreColor = scoreClass === 'excellent' ? 'var(--success)'
+            : scoreClass === 'good' ? 'var(--accent)'
+            : scoreClass === 'warning' ? 'var(--warning)' : 'var(--danger)';
+
+        const issueIcons = { error: '✗', warning: '⚠', info: 'ℹ' };
+
+        const issueHTML = issues.map(i => `
+            <div class="quality-issue">
+                <span class="issue-icon" style="color:${i.severity === 'error' ? 'var(--danger)' : i.severity === 'warning' ? 'var(--warning)' : 'var(--text-secondary)'}">${issueIcons[i.severity] || '•'}</span>
+                <span>${isZh ? i.message_zh : i.message_en}</span>
+            </div>`).join('');
+
+        const noIssueText = isZh ? '数据质量良好，可以开始训练。' : 'Data quality looks good — ready to train.';
+
+        banner.innerHTML = `
+            <div class="quality-banner ${scoreClass}">
+                <div class="quality-score-row">
+                    <div class="quality-score-circle" style="background:${scoreColor}20;border:2px solid ${scoreColor};color:${scoreColor}">
+                        ${score}
+                    </div>
+                    <div>
+                        <strong>${isZh ? '数据质量评分' : 'Data Quality Score'}: ${score}/100 — ${scoreLabel}</strong>
+                        <div style="font-size:0.8rem;color:var(--text-secondary);margin-top:0.2rem;">
+                            ${data.sample_count} ${isZh ? '个样本' : 'samples'} · ${data.n_classes} ${isZh ? '个类别' : 'classes'}
+                        </div>
+                    </div>
+                </div>
+                ${issues.length > 0 ? issueHTML : `<div style="font-size:0.85rem;color:var(--text-secondary);padding-top:0.5rem;border-top:1px solid var(--border)">${noIssueText}</div>`}
+            </div>`;
+        banner.classList.remove('hidden');
+    }
+
+    // ───────────────────────────────────────────────────────────
     // Phase 2 — Config Section
     // ───────────────────────────────────────────────────────────
 
-    function _showConfigSection() {
+    function _showConfigSection(preset) {
+        if (preset) selectedPreset = preset;
         document.getElementById('train-config-section').classList.remove('hidden');
         // Pre-populate channels from detected dataset info
         if (datasetSummary && datasetSummary.channel_detected) {
             document.getElementById('cfg-channels').value = datasetSummary.n_channels;
         } else {
             document.getElementById('cfg-channels').value = 0;
+        }
+        // Apply preset defaults to form (for non-custom presets, show read-only note)
+        if (preset && preset !== 'custom') {
+            const presetDefaults = { auto: [50, 0.001, 64, true], fast: [20, 0.001, 64, false], thorough: [100, 0.001, 32, true] };
+            const [ep, lr, bs, am] = presetDefaults[preset] || [30, 0.001, 64, false];
+            document.getElementById('cfg-epochs').value = ep;
+            document.getElementById('cfg-lr').value = lr;
+            document.getElementById('cfg-batch').value = String(bs);
+            const autoEl = document.getElementById('cfg-auto-mode');
+            if (autoEl) { autoEl.checked = am; autoEl.dispatchEvent(new Event('change')); }
         }
         document.getElementById('train-config-section').scrollIntoView({ behavior: 'smooth' });
     }
@@ -260,6 +403,7 @@ const Trainer = (() => {
                 headers: trainHeaders,
                 body: JSON.stringify({
                     dataset_id: datasetId,
+                    preset: selectedPreset,
                     epochs, learning_rate: lr, batch_size: batchSize, val_split: valSplit,
                     n_channels: nChannels,
                     auto_mode: document.getElementById('cfg-auto-mode')?.checked || false,
@@ -341,6 +485,56 @@ const Trainer = (() => {
         line.textContent = `Epoch ${m.epoch}: loss=${m.train_loss.toFixed(4)} val_loss=${m.val_loss.toFixed(4)} acc=${(m.train_acc*100).toFixed(1)}% val_acc=${(m.val_acc*100).toFixed(1)}%`;
         log.appendChild(line);
         log.scrollTop = log.scrollHeight;
+
+        // v0.8: Update plain-language narration
+        _updateNarration(m);
+    }
+
+    // ── v0.8: Plain-language training narration ──
+    function _updateNarration(m) {
+        const el = document.getElementById('train-narration');
+        if (!el) return;
+        const isZh = App.lang === 'zh';
+        const parts = [];
+
+        // Learning trend (need at least 3 epochs)
+        if (history.length >= 3) {
+            const prev = history[history.length - 3];
+            const improving = m.val_loss < prev.val_loss - 0.001;
+            const plateaued = Math.abs(m.val_loss - prev.val_loss) < 0.001;
+            if (improving) {
+                parts.push(isZh
+                    ? `模型正在持续改善——验证损失从 ${prev.val_loss.toFixed(3)} 降至 ${m.val_loss.toFixed(3)}。`
+                    : `Model is learning — val loss dropped from ${prev.val_loss.toFixed(3)} to ${m.val_loss.toFixed(3)} over the last 3 epochs.`);
+            } else if (plateaued) {
+                parts.push(isZh
+                    ? `验证损失趋于平稳，若持续不变，早停将自动触发。`
+                    : `Performance has plateaued — early stopping will trigger if this continues.`);
+            }
+        }
+
+        // Accuracy status
+        const valPct = (m.val_acc * 100).toFixed(1);
+        if (m.val_acc >= 0.90) {
+            parts.push(isZh ? `验证准确率 ${valPct}%，表现优秀。` : `Validation accuracy ${valPct}% — excellent performance.`);
+        } else if (m.val_acc >= 0.75) {
+            parts.push(isZh ? `验证准确率 ${valPct}%，结果良好。` : `Validation accuracy ${valPct}% — solid results.`);
+        } else if (history.length > 5) {
+            parts.push(isZh ? `验证准确率 ${valPct}%，仍在学习中。` : `Validation accuracy ${valPct}% — still learning.`);
+        }
+
+        // Overfitting warning
+        const gap = m.train_acc - m.val_acc;
+        if (gap > 0.15 && history.length > 5) {
+            parts.push(isZh
+                ? `注意：训练准确率（${(m.train_acc*100).toFixed(1)}%）远高于验证准确率（${valPct}%），存在过拟合迹象。`
+                : `Note: training acc (${(m.train_acc*100).toFixed(1)}%) >> val acc (${valPct}%) — possible overfitting.`);
+        }
+
+        if (parts.length > 0) {
+            el.textContent = parts.join(' ');
+            el.classList.remove('hidden');
+        }
     }
 
     // ───────────────────────────────────────────────────────────
@@ -425,6 +619,9 @@ const Trainer = (() => {
         const banner = document.getElementById('train-complete-banner');
         banner.innerHTML = banner.innerHTML.replace('Loading results…', '');
 
+        // v0.8: Load result interpretation panel
+        _loadInterpretPanel(jobId);
+
         // Phase 5.5: Grad-CAM attention heatmaps
         if (typeof GradCAM !== 'undefined') {
             GradCAM.fetchForTraining(jobId);
@@ -434,6 +631,54 @@ const Trainer = (() => {
         if (typeof Figures !== 'undefined') {
             Figures.loadPublicationFigures(jobId);
         }
+    }
+
+    async function _loadInterpretPanel(jid) {
+        const sec = document.getElementById('train-interpret-section');
+        const content = document.getElementById('train-interpret-content');
+        if (!sec || !content) return;
+        sec.classList.remove('hidden');
+
+        try {
+            const aHeaders = window.Auth ? Auth.authHeaders() : {};
+            const resp = await fetch(`${API_BASE}/train/${jid}/interpret`, { headers: aHeaders });
+            if (!resp.ok) { sec.classList.add('hidden'); return; }
+            const d = await resp.json();
+            _renderInterpretPanel(content, d);
+        } catch (_) {
+            sec.classList.add('hidden');
+        }
+    }
+
+    function _renderInterpretPanel(el, d) {
+        const isZh = App.lang === 'zh';
+        const acc = (d.accuracy * 100).toFixed(2);
+        const readinessBadge = `<span class="readiness-badge ${d.readiness}">${acc}% — ${d.readiness.charAt(0).toUpperCase() + d.readiness.slice(1)}</span>`;
+        const nextSteps = (isZh ? d.next_steps_zh : d.next_steps_en) || [];
+
+        el.innerHTML = `
+            <div class="interpret-grid">
+                <div class="interpret-card">
+                    <h4 data-en="Publication Readiness" data-zh="发表就绪度">${isZh ? '发表就绪度' : 'Publication Readiness'}</h4>
+                    ${readinessBadge}
+                    <p>${isZh ? d.readiness_zh : d.readiness_en}</p>
+                </div>
+                <div class="interpret-card">
+                    <h4 data-en="Training Dynamics" data-zh="训练动态">${isZh ? '训练动态' : 'Training Dynamics'}</h4>
+                    <p>${isZh ? d.dynamics_zh : d.dynamics_en}</p>
+                    <p style="margin-top:0.5rem;font-size:0.8rem;color:var(--text-secondary)">
+                        ${isZh ? `使用了 ${d.epochs_used} 轮${d.early_stopped ? '（早停触发）' : ''}` : `${d.epochs_used} epochs used${d.early_stopped ? ' (early stopped)' : ''}`}
+                    </p>
+                </div>
+                <div class="interpret-card">
+                    <h4 data-en="Weakest Class" data-zh="最薄弱类别">${isZh ? '最薄弱类别' : 'Weakest Class'}</h4>
+                    <p>${isZh ? d.worst_class_advice_zh : d.worst_class_advice_en}</p>
+                </div>
+                <div class="interpret-card">
+                    <h4 data-en="Recommended Next Steps" data-zh="建议下一步">${isZh ? '建议下一步' : 'Recommended Next Steps'}</h4>
+                    <ul class="next-steps-list">${nextSteps.map(s => `<li>${s}</li>`).join('')}</ul>
+                </div>
+            </div>`;
     }
 
     let _cmData = null;   // cached for toggle
@@ -565,11 +810,18 @@ const Trainer = (() => {
 
     function resetTrainer() {
         datasetId = null; datasetSummary = null; jobId = null; history = [];
+        selectedPreset = 'auto';
         if (ws) { ws.close(); ws = null; }
-        ['train-summary-section', 'train-config-section', 'train-dashboard-section', 'train-results-section', 'train-figures-section'].forEach(id => {
+        ['train-summary-section', 'train-guided-section', 'train-config-section',
+         'train-dashboard-section', 'train-results-section', 'train-interpret-section',
+         'train-figures-section'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.classList.add('hidden');
         });
+        const qb = document.getElementById('train-quality-banner');
+        if (qb) { qb.innerHTML = ''; qb.classList.add('hidden'); }
+        const nr = document.getElementById('train-narration');
+        if (nr) { nr.textContent = ''; nr.classList.add('hidden'); }
         document.getElementById('train-upload-status').classList.add('hidden');
         document.getElementById('train-run-status')?.classList.add('hidden');
         document.getElementById('train-file-input').value = '';
@@ -602,7 +854,7 @@ const Trainer = (() => {
     // Public
     return { init, openFilePicker, handleFile, reset: resetTrainer, _bindBrowseLink,
              exportModel, exportHistory, exportCM, exportTSNE, exportReport, toggleCMMode,
-             getJobId };
+             getJobId, _selectPresetAndConfigure };
 })();
 
 window.Trainer = Trainer;

@@ -378,6 +378,15 @@
             </div>
         </section>
 
+        <!-- Train Step 2.5: Guided Mode Selection (shown after summary, before config) -->
+        <section id="train-guided-section" class="card hidden">
+            <h2 data-en="T2.5. Choose Training Mode" data-zh="T2.5. 选择训练模式">T2.5. Choose Training Mode</h2>
+            <!-- Data Quality Banner (injected by JS after assess call) -->
+            <div id="train-quality-banner" class="hidden"></div>
+            <!-- Mode cards (rendered by trainer.js) -->
+            <div id="train-mode-cards" class="mode-card-grid"></div>
+        </section>
+
         <!-- Train Step 3: Training Config + Live Dashboard -->
         <section id="train-config-section" class="card hidden">
             <h2 data-en="T3. Training Configuration" data-zh="T3. 训练配置">T3. Training Configuration</h2>
@@ -452,6 +461,8 @@
                 </div>
             </div>
             <div id="train-epoch-log" class="train-epoch-log"></div>
+            <!-- v0.8: Plain-language narration panel -->
+            <div id="train-narration" class="train-narration hidden"></div>
             <div id="train-complete-banner" class="status success hidden"></div>
         </section>
 
@@ -493,6 +504,14 @@
             <div id="train-gradcam-controls" class="gradcam-controls"></div>
             <div id="train-gradcam-chart" class="chart-container" style="height:360px;"></div>
             <div id="train-gradcam-info" class="gradcam-info"></div>
+        </section>
+
+        <!-- Train Step 5.5: Result Interpretation (v0.8) -->
+        <section id="train-interpret-section" class="card hidden">
+            <h2 data-en="T5.5. What Do These Results Mean?" data-zh="T5.5. 结果解读">T5.5. What Do These Results Mean?</h2>
+            <div id="train-interpret-content">
+                <div class="spinner-inline"></div>
+            </div>
         </section>
 
         <!-- Train Step 6: Publication-Quality Figures -->
