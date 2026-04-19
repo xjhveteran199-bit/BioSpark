@@ -675,11 +675,11 @@ async def interpret_results(job_id: str):
     elif acc >= 0.75:
         readiness = "moderate"
         readiness_en = "Moderate results — solid foundation. Try the 'Publication Ready' preset or add more labeled data to push above 85%."
-        readiness_zh = "中等成绩——有一定基础。尝试"发表级别"预设或增加标注数据，争取超过 85%。"
+        readiness_zh = "中等成绩——有一定基础。尝试\"发表级别\"预设或增加标注数据，争取超过 85%。"
     else:
         readiness = "weak"
         readiness_en = "Results need improvement. Check your data labels, consider collecting more samples, or use the Smart Auto preset."
-        readiness_zh = "结果有待提升。请检查数据标签，考虑增加样本量，或使用"智能自动"预设。"
+        readiness_zh = "结果有待提升。请检查数据标签，考虑增加样本量，或使用\"智能自动\"预设。"
 
     # ── Worst-performing class ──
     worst = min(per_class, key=lambda c: c["f1"])
