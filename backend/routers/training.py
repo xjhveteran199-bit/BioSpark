@@ -37,6 +37,79 @@ _dataset_cache: dict[str, dict] = {}
 
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024  # 200 MB
 
+# ---------------------------------------------------------------------------
+# Training Presets
+# ---------------------------------------------------------------------------
+
+_PRESETS = {
+    "auto": {
+        "label_en": "Smart Auto (Recommended)",
+        "label_zh": "智能自动（推荐）",
+        "description_en": "Automatically picks the best learning rate, architecture, and stops when performance plateaus. Best for most datasets.",
+        "description_zh": "自动选择最佳学习率和网络结构，性能不再提升时自动停止。适合大多数数据集。",
+        "time_estimate_en": "5–15 min · Good for publications",
+        "time_estimate_zh": "约 5–15 分钟 · 适合发表",
+        "epochs": 50,
+        "learning_rate": 1e-3,
+        "batch_size": 64,
+        "val_split": 0.2,
+        "auto_mode": True,
+        "early_stopping_patience": 12,
+        "use_class_weights": True,
+    },
+    "fast": {
+        "label_en": "Quick Test",
+        "label_zh": "快速测试",
+        "description_en": "20 epochs without LR search. Useful for checking data quality before committing to a full run.",
+        "description_zh": "20 轮训练，跳过学习率搜索。适合快速验证数据质量。",
+        "time_estimate_en": "1–3 min · For exploration",
+        "time_estimate_zh": "约 1–3 分钟 · 用于探索",
+        "epochs": 20,
+        "learning_rate": 1e-3,
+        "batch_size": 64,
+        "val_split": 0.2,
+        "auto_mode": False,
+        "early_stopping_patience": 8,
+        "use_class_weights": True,
+    },
+    "thorough": {
+        "label_en": "Publication Ready",
+        "label_zh": "发表级别",
+        "description_en": "100 epochs with full auto-optimization. Maximizes accuracy — use this for your final submitted model.",
+        "description_zh": "100 轮完整自动优化，最大化准确率。适合最终投稿前的训练。",
+        "time_estimate_en": "20–60 min · For submission",
+        "time_estimate_zh": "约 20–60 分钟 · 用于投稿",
+        "epochs": 100,
+        "learning_rate": 1e-3,
+        "batch_size": 32,
+        "val_split": 0.2,
+        "auto_mode": True,
+        "early_stopping_patience": 20,
+        "use_class_weights": True,
+    },
+    "custom": {
+        "label_en": "Custom",
+        "label_zh": "自定义",
+        "description_en": "Set all hyperparameters manually.",
+        "description_zh": "手动设置所有超参数。",
+        "time_estimate_en": "Depends on your settings",
+        "time_estimate_zh": "取决于您的设置",
+        "epochs": 30,
+        "learning_rate": 1e-3,
+        "batch_size": 64,
+        "val_split": 0.2,
+        "auto_mode": False,
+        "early_stopping_patience": 10,
+        "use_class_weights": True,
+    },
+}
+
+
+@router.get("/train/presets")
+async def get_training_presets():
+    """Return the available training presets with their configurations."""
+    return {"presets": _PRESETS}
+
 
 # ---------------------------------------------------------------------------
 # Phase 1 — Upload
@@ -97,6 +170,7 @@ async def get_dataset_info(dataset_id: str):
 
 class TrainStartRequest(BaseModel):
     dataset_id: str
+    preset: str = Field(default="custom", description="Preset name: auto/fast/thorough/custom")
     epochs: int = Field(default=30, ge=1, le=200)
     learning_rate: float = Field(default=1e-3, gt=0, le=1.0)
     batch_size: int = Field(default=64, ge=4, le=512)
@@ -108,6 +182,31 @@ class TrainStartRequest(BaseModel):
     use_class_weights: bool = Field(default=True, description="Auto-compute class weights for imbalanced data")
 
 
+@router.post("/train/assess")
+async def assess_dataset(dataset_id: str):
+    """
+    Run data quality assessment on a previously uploaded dataset.
+
+    Returns structured quality issues and a 0-100 quality score that the
+    frontend can display before the user starts training.
+    """
+    entry = _dataset_cache.get(dataset_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Dataset not found. Upload first.")
+
+    try:
+        import numpy as np
+        from backend.services.auto_optimizer import DataQualityAssessor
+        trainer = _get_trainer()
+        X, y, class_names = trainer._dataset_to_tensors(
+            entry["file_bytes"], entry["filename"], entry["summary"]
+        )
+        result = DataQualityAssessor().assess(X, y, class_names)
+        return {"dataset_id": dataset_id, **result}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Assessment failed: {exc}")
+
+
 @router.post("/train/start")
 async def start_training(req: TrainStartRequest):
     """
@@ -115,20 +214,26 @@ async def start_training(req: TrainStartRequest):
 
     Returns a ``job_id`` that can be used with the WebSocket endpoint
     ``/api/train/ws/{job_id}`` to receive live epoch metrics.
+
+    When ``preset`` is set to a non-custom value, the preset's hyperparameters
+    are used as defaults and any explicit request fields override them.
     """
     entry = _dataset_cache.get(req.dataset_id)
     if entry is None:
         raise HTTPException(status_code=404, detail="Dataset not found. Upload first.")
 
+    # Apply preset defaults first, then overlay explicit request values
+    preset_cfg = _PRESETS.get(req.preset, _PRESETS["custom"])
     config = {
-        "epochs": req.epochs,
-        "learning_rate": req.learning_rate,
-        "batch_size": req.batch_size,
-        "val_split": req.val_split,
+        "preset": req.preset,
+        "epochs": req.epochs if req.preset == "custom" else preset_cfg["epochs"],
+        "learning_rate": req.learning_rate if req.preset == "custom" else preset_cfg["learning_rate"],
+        "batch_size": req.batch_size if req.preset == "custom" else preset_cfg["batch_size"],
+        "val_split": req.val_split if req.preset == "custom" else preset_cfg["val_split"],
         "n_channels": req.n_channels,
-        "auto_mode": req.auto_mode,
-        "early_stopping_patience": req.early_stopping_patience,
-        "use_class_weights": req.use_class_weights,
+        "auto_mode": req.auto_mode if req.preset == "custom" else preset_cfg["auto_mode"],
+        "early_stopping_patience": req.early_stopping_patience if req.preset == "custom" else preset_cfg["early_stopping_patience"],
+        "use_class_weights": req.use_class_weights if req.preset == "custom" else preset_cfg["use_class_weights"],
     }
 
     job_id = str(uuid.uuid4())[:8]
@@ -531,6 +636,100 @@ Plotly.newPlot('tsne-chart', traces, {{margin:{{t:10,r:10,b:40,l:40}},xaxis:{{ti
         media_type="text/html",
         headers={"Content-Disposition": f'attachment; filename="biospark_report_{job_id}.html"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# v0.8 — Result Interpretation
+# ---------------------------------------------------------------------------
+
+@router.get("/train/{job_id}/interpret")
+async def interpret_results(job_id: str):
+    """
+    Return a plain-language interpretation of the training results.
+
+    Provides publication-readiness assessment, worst-class identification,
+    and actionable guidance — targeted at researchers without deep learning
+    backgrounds who need help understanding what the numbers mean.
+    """
+    job = _require_completed_job(job_id)
+
+    try:
+        cm_data = _get_trainer().compute_confusion_matrix(job)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Cannot compute confusion matrix: {exc}")
+
+    acc = cm_data["accuracy"]
+    per_class = cm_data["per_class"]
+    n_epochs = len(job.history)
+    early_stopped = job.config.get("early_stopping_patience") is not None and n_epochs < job.config.get("epochs", 9999)
+
+    # ── Publication readiness ──
+    if acc >= 0.92:
+        readiness = "excellent"
+        readiness_en = "Excellent results — your accuracy exceeds 92%, which is competitive in top-tier biosignal classification papers."
+        readiness_zh = "优秀成绩——准确率超过 92%，在顶级生物信号分类论文中具有竞争力。"
+    elif acc >= 0.85:
+        readiness = "strong"
+        readiness_en = "Strong results — accuracy above 85% is publishable. Consider k-fold validation to report confidence intervals."
+        readiness_zh = "良好成绩——准确率高于 85% 可达到发表标准，建议进行 k 折交叉验证以报告置信区间。"
+    elif acc >= 0.75:
+        readiness = "moderate"
+        readiness_en = "Moderate results — solid foundation. Try the 'Publication Ready' preset or add more labeled data to push above 85%."
+        readiness_zh = "中等成绩——有一定基础。尝试\"发表级别\"预设或增加标注数据，争取超过 85%。"
+    else:
+        readiness = "weak"
+        readiness_en = "Results need improvement. Check your data labels, consider collecting more samples, or use the Smart Auto preset."
+        readiness_zh = "结果有待提升。请检查数据标签，考虑增加样本量，或使用\"智能自动\"预设。"
+
+    # ── Worst-performing class ──
+    worst = min(per_class, key=lambda c: c["f1"])
+    worst_en = (
+        f"Class '{worst['class']}' has the lowest F1 score ({worst['f1']*100:.1f}%). "
+        f"It has {worst['support']} validation samples — collecting more data for this class would help."
+    )
+    worst_zh = (
+        f"类别 '{worst['class']}' 的 F1 分数最低（{worst['f1']*100:.1f}%），"
+        f"验证集中有 {worst['support']} 个样本。为该类别收集更多数据将有助于改善。"
+    )
+
+    # ── Training dynamics ──
+    if job.history:
+        last = job.history[-1]
+        overfit_gap = last.get("train_acc", 0) - last.get("val_acc", 0)
+        if overfit_gap > 0.15:
+            dynamics_en = f"Overfitting detected: training accuracy ({last['train_acc']*100:.1f}%) is much higher than validation ({last['val_acc']*100:.1f}%). Try adding more data augmentation or increasing dropout."
+            dynamics_zh = f"检测到过拟合：训练准确率（{last['train_acc']*100:.1f}%）远高于验证准确率（{last['val_acc']*100:.1f}%）。建议增加数据增强或提高 Dropout。"
+        else:
+            dynamics_en = "Training and validation curves are well-aligned — no significant overfitting detected."
+            dynamics_zh = "训练曲线与验证曲线吻合良好——未检测到明显过拟合。"
+    else:
+        dynamics_en = dynamics_zh = ""
+
+    return {
+        "job_id": job_id,
+        "accuracy": acc,
+        "readiness": readiness,
+        "readiness_en": readiness_en,
+        "readiness_zh": readiness_zh,
+        "worst_class": worst["class"],
+        "worst_class_f1": worst["f1"],
+        "worst_class_advice_en": worst_en,
+        "worst_class_advice_zh": worst_zh,
+        "dynamics_en": dynamics_en,
+        "dynamics_zh": dynamics_zh,
+        "epochs_used": n_epochs,
+        "early_stopped": early_stopped,
+        "next_steps_en": [
+            "Run k-fold cross-validation to get confidence intervals for your paper.",
+            "Use statistical testing to compare against a baseline method.",
+            "Export publication-quality figures for your manuscript.",
+        ],
+        "next_steps_zh": [
+            "运行 k 折交叉验证，为论文获取置信区间。",
+            "使用统计检验与基线方法进行比较。",
+            "导出发表级别图表用于论文。",
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------

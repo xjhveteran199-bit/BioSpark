@@ -243,3 +243,129 @@ class EarlyStopping:
                 self.should_stop = True
 
         return self.should_stop
+
+
+# ---------------------------------------------------------------------------
+# Data Quality Assessment
+# ---------------------------------------------------------------------------
+
+class DataQualityAssessor:
+    """Assess the quality of a labeled training dataset before training.
+
+    Checks for common issues that would hurt model performance:
+    class imbalance, insufficient samples, flat/constant channels, and
+    NaN/Inf values.  Returns structured issues so the frontend can display
+    plain-language warnings before the user starts training.
+    """
+
+    def assess(self, X: np.ndarray, y: np.ndarray, class_names: list) -> dict:
+        """Run all quality checks.
+
+        Parameters
+        ----------
+        X : ndarray of shape (N, features)
+        y : ndarray of shape (N,) with integer class indices
+        class_names : list of class label strings
+
+        Returns
+        -------
+        dict with keys: issues, quality_score (0-100), ready_to_train,
+                        sample_count, class_distribution
+        """
+        issues = []
+        n_samples = len(X)
+        n_classes = len(class_names)
+
+        # ── NaN / Inf check ──
+        if np.any(~np.isfinite(X)):
+            issues.append({
+                "severity": "error",
+                "code": "nan_inf",
+                "message_en": "Dataset contains NaN or Inf values. Clean the data before training.",
+                "message_zh": "数据集包含 NaN 或 Inf 值，请在训练前清理数据。",
+            })
+
+        # ── Sample count ──
+        if n_samples < 50:
+            issues.append({
+                "severity": "error",
+                "code": "too_few_samples",
+                "message_en": f"Only {n_samples} samples — need at least 50 for meaningful training.",
+                "message_zh": f"仅有 {n_samples} 个样本，至少需要 50 个才能有效训练。",
+            })
+        elif n_samples < 300:
+            issues.append({
+                "severity": "warning",
+                "code": "small_dataset",
+                "message_en": f"Only {n_samples} samples. Results may not generalize well. Consider collecting more data.",
+                "message_zh": f"仅有 {n_samples} 个样本，结果可能泛化性不足，建议收集更多数据。",
+            })
+
+        # ── Class imbalance ──
+        counts = np.bincount(y, minlength=n_classes)
+        valid_counts = counts[counts > 0]
+        if len(valid_counts) > 1:
+            ratio = int(valid_counts.max()) / max(int(valid_counts.min()), 1)
+            if ratio > 10:
+                issues.append({
+                    "severity": "warning",
+                    "code": "severe_imbalance",
+                    "message_en": f"Severe class imbalance ({ratio:.0f}× ratio). Class weighting is strongly recommended.",
+                    "message_zh": f"严重类别不平衡（比例 {ratio:.0f}×），强烈建议启用类别权重。",
+                })
+            elif ratio > 5:
+                issues.append({
+                    "severity": "warning",
+                    "code": "moderate_imbalance",
+                    "message_en": f"Moderate class imbalance ({ratio:.0f}× ratio). Class weighting is recommended.",
+                    "message_zh": f"存在类别不平衡（比例 {ratio:.0f}×），建议启用类别权重。",
+                })
+
+        # ── Missing classes (some classes have 0 samples) ──
+        empty_classes = [class_names[i] for i, c in enumerate(counts) if c == 0]
+        if empty_classes:
+            issues.append({
+                "severity": "error",
+                "code": "empty_classes",
+                "message_en": f"Classes with 0 samples: {empty_classes}. Remove them or add data.",
+                "message_zh": f"以下类别样本数为 0：{empty_classes}，请删除或补充数据。",
+            })
+
+        # ── Flat / constant channels (std ≈ 0 across samples) ──
+        if X.shape[0] > 1:
+            col_stds = X.std(axis=0)
+            flat_frac = float((col_stds < 1e-6).mean())
+            if flat_frac > 0.5:
+                issues.append({
+                    "severity": "warning",
+                    "code": "flat_signal",
+                    "message_en": f"{flat_frac*100:.0f}% of signal columns are nearly constant — the signal may not contain discriminative information.",
+                    "message_zh": f"{flat_frac*100:.0f}% 的信号列接近常数，信号可能不含有效判别信息。",
+                })
+            elif flat_frac > 0.1:
+                issues.append({
+                    "severity": "info",
+                    "code": "partial_flat",
+                    "message_en": f"{flat_frac*100:.0f}% of signal columns have very low variance.",
+                    "message_zh": f"{flat_frac*100:.0f}% 的信号列方差极低。",
+                })
+
+        # ── Quality score (0-100) ──
+        deductions = sum(
+            30 if i["severity"] == "error" else
+            15 if i["severity"] == "warning" else 5
+            for i in issues
+        )
+        quality_score = max(0, 100 - deductions)
+
+        # ── Per-class distribution ──
+        class_dist = {class_names[i]: int(counts[i]) for i in range(n_classes)}
+
+        return {
+            "issues": issues,
+            "quality_score": quality_score,
+            "ready_to_train": all(i["severity"] != "error" for i in issues),
+            "sample_count": n_samples,
+            "n_classes": n_classes,
+            "class_distribution": class_dist,
+        }
