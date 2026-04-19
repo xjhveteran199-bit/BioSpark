@@ -3,10 +3,9 @@
  * Uploads file to backend API for proper parsing and analysis.
  */
 
-// Global API base — used by all JS modules
-var API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    ? 'http://localhost:8000/api'
-    : `${window.location.origin}/api`;
+// Global API base — used by all JS modules. Always use same origin so the
+// frontend works regardless of which port uvicorn is bound to (8000, 8001, …).
+var API_BASE = `${window.location.origin}/api`;
 
 const Uploader = {
     fileId: null,
