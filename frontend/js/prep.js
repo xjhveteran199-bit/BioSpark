@@ -76,18 +76,31 @@ const Prep = (() => {
     }
 
     async function handleFile(file) {
+        const isZh = (window.App && App.lang === 'zh');
         if (!mode) {
-            _setStatus('prep-upload-status', 'error', 'Choose a mode first.');
+            _setStatus('prep-upload-status', 'error',
+                isZh ? '请先选择输入模式（步骤 1）。' : 'Choose a mode first.');
             return;
         }
         const ext = (file.name.split('.').pop() || '').toLowerCase();
         const wantZip = mode === 'A' || mode === 'C';
+        const UNSUPPORTED_ARCHIVES = ['rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz'];
+        if (wantZip && UNSUPPORTED_ARCHIVES.includes(ext)) {
+            _setStatus('prep-upload-status', 'error', isZh
+                ? `不支持 .${ext} 格式（仅支持 .zip）。请用 WinRAR / 7-Zip 重新打包为 .zip 后再上传。`
+                : `.${ext} archives are not supported — only .zip is. Please re-package the folder as a .zip (use WinRAR / 7-Zip → Add to ".zip").`);
+            return;
+        }
         if (wantZip && ext !== 'zip') {
-            _setStatus('prep-upload-status', 'error', `Mode ${mode} expects a .zip file (got .${ext}).`);
+            _setStatus('prep-upload-status', 'error', isZh
+                ? `模式 ${mode} 需要 .zip 文件（当前为 .${ext}）。`
+                : `Mode ${mode} expects a .zip file (got .${ext}).`);
             return;
         }
         if (mode === 'B' && !(ext === 'csv' || ext === 'txt')) {
-            _setStatus('prep-upload-status', 'error', `Mode B expects a .csv file (got .${ext}).`);
+            _setStatus('prep-upload-status', 'error', isZh
+                ? `模式 B 需要 .csv 文件（当前为 .${ext}）。`
+                : `Mode B expects a .csv file (got .${ext}).`);
             return;
         }
         pendingFile = file;

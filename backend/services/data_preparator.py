@@ -50,7 +50,20 @@ def inspect_upload(filename: str, file_bytes: bytes) -> dict:
         }
     """
     ext = Path(filename).suffix.lower()
+    # Reject other archive formats with a clear message — only .zip is
+    # parseable by Python's stdlib zipfile.
+    if ext in (".rar", ".7z", ".tar", ".gz", ".tgz", ".bz2", ".xz"):
+        raise ValueError(
+            f"Archive format '{ext}' is not supported. Only .zip is supported — "
+            f"please re-package the folder as a .zip (e.g. with WinRAR / 7-Zip) and try again."
+        )
     if ext == ".zip":
+        # Validate the actual bytes to catch mis-named files (e.g. a .rar renamed to .zip).
+        if not zipfile.is_zipfile(io.BytesIO(file_bytes)):
+            raise ValueError(
+                "The uploaded file does not appear to be a valid .zip archive. "
+                "If it is actually .rar / .7z / .tar.gz, re-package it as .zip first."
+            )
         return _inspect_zip(file_bytes)
     if ext in (".csv", ".txt"):
         return _inspect_csv(file_bytes, filename)
