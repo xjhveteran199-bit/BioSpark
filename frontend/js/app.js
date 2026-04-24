@@ -13,6 +13,8 @@ const App = {
         Uploader.init();
         Visualizer.init();
         Trainer.init();
+        if (window.Prep) Prep.init();
+        if (window.MyModels) MyModels.init();
         this.bindEvents();
         this.loadModels();
 
@@ -38,14 +40,36 @@ const App = {
         this.mode = mode;
         document.getElementById('analyze-mode').classList.toggle('hidden', mode !== 'analyze');
         document.getElementById('train-mode').classList.toggle('hidden', mode !== 'train');
+        const prepEl = document.getElementById('prep-mode');
+        if (prepEl) prepEl.classList.toggle('hidden', mode !== 'prep');
         document.getElementById('monitor-mode').classList.toggle('hidden', mode !== 'monitor');
+        const myModelsEl = document.getElementById('my-models-mode');
+        if (myModelsEl) myModelsEl.classList.toggle('hidden', mode !== 'my-models');
         document.querySelectorAll('.mode-tab').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.mode === mode);
         });
         // Re-bind browse links after DOM toggle
         if (mode === 'train') Trainer._bindBrowseLink();
+        if (mode === 'prep' && window.Prep) Prep.onShow();
+        if (mode === 'my-models' && window.MyModels) MyModels.onShow();
         // Disconnect streaming when leaving monitor mode
         if (mode !== 'monitor' && window.Streaming) Streaming.disconnect();
+    },
+
+    toast(msg, kind) {
+        // Lightweight notifier. Falls back to alert if no UI hook exists.
+        try {
+            const bar = document.createElement('div');
+            bar.textContent = msg;
+            bar.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#1e293b;color:#fff;'
+                + 'padding:0.75rem 1rem;border-radius:8px;font-size:0.9rem;max-width:380px;'
+                + 'box-shadow:0 4px 12px rgba(0,0,0,0.2);z-index:9999;'
+                + (kind === 'error' ? 'border-left:4px solid #dc2626;' : 'border-left:4px solid #2563eb;');
+            document.body.appendChild(bar);
+            setTimeout(() => bar.remove(), 5000);
+        } catch (_) {
+            alert(msg);
+        }
     },
 
     // --- Language Toggle ---

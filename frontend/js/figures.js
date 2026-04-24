@@ -55,15 +55,51 @@ const Figures = (() => {
         a.remove();
     }
 
-    function downloadAllFigures() {
+    async function downloadAllFigures(triggerBtn) {
         if (!_jobId) return;
+        const btn = triggerBtn || (event && event.currentTarget) || null;
+        const originalLabel = btn ? btn.innerHTML : null;
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> ...';
+        }
         const url = `${API_BASE}/train/${_jobId}/figures/all.zip?style=${_style}`;
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `biospark_figures_${_jobId}.zip`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
+        try {
+            const resp = await fetch(url);
+            if (!resp.ok) {
+                let detail = `HTTP ${resp.status}`;
+                try {
+                    const body = await resp.json();
+                    detail = body.detail || detail;
+                } catch (_) {
+                    try { detail = await resp.text() || detail; } catch (_e) { /* ignore */ }
+                }
+                throw new Error(detail);
+            }
+            const blob = await resp.blob();
+            if (!blob || blob.size === 0) throw new Error('Empty zip received from server.');
+            const objUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = objUrl;
+            a.download = `biospark_figures_${_jobId}.zip`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(objUrl), 30000);
+        } catch (e) {
+            console.error('Download all figures failed:', e);
+            const msg = `Download failed: ${e.message}`;
+            if (window.App && typeof window.App.toast === 'function') {
+                window.App.toast(msg, 'error');
+            } else {
+                alert(msg);
+            }
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = originalLabel;
+            }
+        }
     }
 
     async function loadPublicationFigures(jobId) {

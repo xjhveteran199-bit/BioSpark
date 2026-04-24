@@ -209,6 +209,15 @@ def _parse_zip_dataset(zip_bytes: bytes) -> dict:
         }
 
 
+def load_labeled_dataframe(df: pd.DataFrame) -> dict:
+    """Parse an in-memory labeled DataFrame.
+
+    Same return shape as load_labeled_dataset for the CSV path. Used by the
+    data preparation pipeline to avoid serializing → re-parsing CSVs.
+    """
+    return _parse_labeled_csv(df)
+
+
 def load_labeled_dataset(filename: str, file_bytes: bytes) -> dict:
     """
     Parse a labeled biosignal dataset from raw file bytes.

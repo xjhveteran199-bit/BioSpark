@@ -95,6 +95,35 @@ const Trainer = (() => {
         _renderClassTable(data);
         document.getElementById('train-next-btn').disabled = false;
         document.getElementById('train-summary-section').scrollIntoView({ behavior: 'smooth' });
+        // Self-Improving: refresh warm-start availability for this dataset shape
+        _refreshWarmStartToggle(data);
+    }
+
+    async function _refreshWarmStartToggle(data) {
+        const toggle = document.getElementById('cfg-warm-start');
+        const hint = document.getElementById('warm-start-hint');
+        if (!toggle) return;
+        toggle.disabled = true;
+        toggle.checked = false;
+        try {
+            const headers = window.Auth ? Auth.authHeaders() : {};
+            const resp = await fetch(`${API_BASE}/models/history`, { headers });
+            if (!resp.ok) return;
+            const body = await resp.json();
+            const ckpts = body.checkpoints || [];
+            const nCh = data.n_channels || 1;
+            const compatible = ckpts.find(c => (c.input_shape || {}).n_channels === nCh);
+            if (compatible) {
+                toggle.disabled = false;
+                toggle.checked = !!compatible.is_active;
+                if (hint) {
+                    const isZh = (window.App && App.lang === 'zh');
+                    hint.textContent = isZh
+                        ? `已找到兼容 v${compatible.version}（验证准确率 ${(compatible.best_val_acc*100).toFixed(1)}%）`
+                        : `Compatible v${compatible.version} found (val acc ${(compatible.best_val_acc*100).toFixed(1)}%)`;
+                }
+            }
+        } catch (_) { /* offline / no auth → leave disabled */ }
     }
 
     function _renderInfoBar(data) {
@@ -409,6 +438,7 @@ const Trainer = (() => {
                     auto_mode: document.getElementById('cfg-auto-mode')?.checked || false,
                     early_stopping_patience: parseInt(document.getElementById('cfg-early-stop')?.value) || 10,
                     use_class_weights: document.getElementById('cfg-class-weights')?.checked !== false,
+                    warm_start: document.getElementById('cfg-warm-start')?.checked || false,
                 }),
             });
             if (!resp.ok) { const err = await resp.json(); throw new Error(err.detail || 'Failed to start'); }
@@ -594,6 +624,11 @@ const Trainer = (() => {
 
         // Phase 3: fetch post-training visualizations
         _loadPostTrainingResults();
+
+        // Self-Improving: refresh My Models history (give backend a moment to persist)
+        if (window.MyModels) {
+            setTimeout(() => MyModels.refresh(), 1500);
+        }
     }
 
     // ───────────────────────────────────────────────────────────
@@ -851,10 +886,35 @@ const Trainer = (() => {
 
     function getJobId() { return jobId; }
 
+    /**
+     * Adopt a dataset that has already been registered server-side
+     * (e.g. by the prep router) and render the standard training summary.
+     */
+    async function loadDatasetById(id) {
+        try {
+            const aHeaders = window.Auth ? Auth.authHeaders() : {};
+            const resp = await fetch(`${API_BASE}/train/dataset/${id}`, { headers: aHeaders });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({ detail: `HTTP ${resp.status}` }));
+                throw new Error(err.detail || `HTTP ${resp.status}`);
+            }
+            const data = await resp.json();
+            datasetId = data.dataset_id || id;
+            datasetSummary = data;
+            _setStatus('train-upload-status', 'success',
+                `Dataset loaded: ${data.total_samples} samples, ${data.class_names.length} classes`);
+            _showSummary(data);
+            return true;
+        } catch (err) {
+            _setStatus('train-upload-status', 'error', `Load failed: ${err.message}`);
+            return false;
+        }
+    }
+
     // Public
     return { init, openFilePicker, handleFile, reset: resetTrainer, _bindBrowseLink,
              exportModel, exportHistory, exportCM, exportTSNE, exportReport, toggleCMMode,
-             getJobId, _selectPresetAndConfigure };
+             getJobId, loadDatasetById, _selectPresetAndConfigure };
 })();
 
 window.Trainer = Trainer;

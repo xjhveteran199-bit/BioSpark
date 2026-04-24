@@ -14,7 +14,7 @@ import time
 import traceback
 import zipfile
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 import numpy as np
 import pandas as pd
@@ -104,7 +104,15 @@ class Signal1DCNN(nn.Module):
 class TrainingJob:
     """Holds all state for a single training run."""
 
-    def __init__(self, job_id: str, config: dict, class_names: list[str]):
+    def __init__(
+        self,
+        job_id: str,
+        config: dict,
+        class_names: list[str],
+        user_id: Optional[int] = None,
+        warm_start_path: Optional[str] = None,
+        on_complete: Optional[Callable[["TrainingJob"], Awaitable[None]]] = None,
+    ):
         self.job_id = job_id
         self.status = "pending"  # pending | training | completed | failed
         self.config = config
@@ -116,6 +124,14 @@ class TrainingJob:
         self.val_X: Optional[np.ndarray] = None
         self.val_y: Optional[np.ndarray] = None
         self.n_channels: int = 1              # resolved channel count
+        self.signal_length: int = 0           # filled at training time
+
+        # Self-improving (warm-start) metadata
+        self.user_id = user_id
+        self.warm_start_path = warm_start_path
+        self.warm_started_from_id: Optional[int] = None  # filled by router when known
+        self.warm_start_status: Optional[str] = None      # "full" | "partial" | "skipped"
+        self.on_complete = on_complete
 
         # Async callbacks — called from the training thread with an
         # ``asyncio.run_coroutine_threadsafe`` call.
@@ -324,6 +340,67 @@ def _run_training(job: TrainingJob, X: np.ndarray, y: np.ndarray):
             n_classes=n_classes, in_channels=n_channels, arch_config=arch_config,
         ).to(device)
 
+        # Record signal length on the job for downstream persistence.
+        job.signal_length = signal_len
+
+        # ----- Warm-start (Self-Improving) -----
+        # Try to load a previously trained checkpoint for the same user.  We
+        # accept a partial match: if the classifier head shape disagrees, we
+        # only transfer the feature extractor (`features.*`).  Any failure
+        # is reported via `_emit` rather than aborting the run.
+        if job.warm_start_path:
+            try:
+                ckpt = torch.load(job.warm_start_path, map_location=device)
+                if isinstance(ckpt, dict) and "state_dict" in ckpt:
+                    src_sd = ckpt["state_dict"]
+                else:
+                    src_sd = ckpt  # plain state_dict for backward compat
+
+                target_sd = model.state_dict()
+                filtered: dict[str, torch.Tensor] = {}
+                skipped: list[str] = []
+                for k, v in src_sd.items():
+                    if k in target_sd and target_sd[k].shape == v.shape:
+                        filtered[k] = v
+                    else:
+                        skipped.append(k)
+
+                if filtered:
+                    missing, unexpected = model.load_state_dict(filtered, strict=False)
+                    has_features = any(k.startswith("features.") for k in filtered)
+                    has_classifier = any(k.startswith("classifier.") for k in filtered)
+                    if has_features and has_classifier and not skipped:
+                        status = "full"
+                    elif has_features:
+                        status = "partial"
+                    else:
+                        status = "partial"
+                    job.warm_start_status = status
+                    job._emit({
+                        "type": "warmstart",
+                        "status": status,
+                        "loaded_keys": len(filtered),
+                        "skipped_keys": len(skipped),
+                        "reason": (
+                            "shape mismatch — classifier reinitialized"
+                            if status == "partial" else None
+                        ),
+                    })
+                else:
+                    job.warm_start_status = "skipped"
+                    job._emit({
+                        "type": "warmstart",
+                        "status": "skipped",
+                        "reason": "no compatible weights found in checkpoint",
+                    })
+            except Exception as _exc:
+                job.warm_start_status = "skipped"
+                job._emit({
+                    "type": "warmstart",
+                    "status": "skipped",
+                    "reason": f"failed to load checkpoint: {_exc}",
+                })
+
         if class_weights is not None:
             criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
         else:
@@ -439,6 +516,17 @@ def _run_training(job: TrainingJob, X: np.ndarray, y: np.ndarray):
             "early_stopped": early_stopper is not None and early_stopper.should_stop,
         })
 
+        # ----- Self-improving: persistence callback -----
+        # Fire after `complete` so the WS client receives metrics first.
+        # Callback is responsible for serializing the model to disk and
+        # writing TrainingRun + ModelCheckpoint rows.
+        if job.on_complete is not None and job._loop is not None:
+            try:
+                asyncio.run_coroutine_threadsafe(job.on_complete(job), job._loop)
+            except Exception:
+                # Persistence is best-effort: don't crash the trainer thread.
+                pass
+
     except Exception as exc:
         job.status = "failed"
         job.error = traceback.format_exc()
@@ -462,6 +550,10 @@ class TrainingManager:
         filename: str,
         summary: dict,
         config: dict,
+        user_id: Optional[int] = None,
+        warm_start_path: Optional[str] = None,
+        warm_started_from_id: Optional[int] = None,
+        on_complete: Optional[Callable[[TrainingJob], Awaitable[None]]] = None,
     ) -> TrainingJob:
         """Parse the dataset, create a job, and launch training in a thread."""
         X, y, class_names = _dataset_to_tensors(file_bytes, filename, summary)
@@ -475,8 +567,16 @@ class TrainingManager:
                 f"{total_cols} is not divisible by {n_channels}."
             )
 
-        job = TrainingJob(job_id=job_id, config=config, class_names=class_names)
+        job = TrainingJob(
+            job_id=job_id,
+            config=config,
+            class_names=class_names,
+            user_id=user_id,
+            warm_start_path=warm_start_path,
+            on_complete=on_complete,
+        )
         job.n_channels = n_channels
+        job.warm_started_from_id = warm_started_from_id
         self.jobs[job_id] = job
 
         import threading

@@ -7,10 +7,13 @@ from fastapi.responses import FileResponse
 from pathlib import Path
 
 from backend.database import init_db
+from backend.models import training_history  # noqa: F401  -- ensure tables register
 from backend.routers import training as training_router
+from backend.routers import model_history as model_history_router
 from backend.routers import figures as figures_router
 from backend.routers import auth as auth_router
 from backend.routers import streaming as streaming_router
+from backend.routers import prep as prep_router
 
 # These routers depend on scipy/onnxruntime — import gracefully for serverless
 try:
@@ -56,8 +59,10 @@ if _inference_available:
     app.include_router(analysis.router, prefix="/api", tags=["Analysis"])
     app.include_router(models_router.router, prefix="/api", tags=["Models"])
 app.include_router(training_router.router, prefix="/api", tags=["Training"])
+app.include_router(prep_router.router, prefix="/api", tags=["DataPrep"])
 app.include_router(figures_router.router, prefix="/api", tags=["Figures"])
 app.include_router(streaming_router.router, prefix="/api", tags=["Streaming"])
+app.include_router(model_history_router.router, prefix="/api", tags=["ModelHistory"])
 
 # --- Serve frontend static assets (css/js/assets) under /static ---
 frontend_dir = Path(__file__).resolve().parent.parent / "frontend"

@@ -9,6 +9,10 @@ SAMPLE_DATA_DIR = BASE_DIR / "sample_data"
 
 UPLOAD_DIR.mkdir(exist_ok=True)
 
+# Self-improving model checkpoints (per-user warm-start chain)
+CHECKPOINTS_DIR = BASE_DIR / "data" / "checkpoints"
+CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
+
 # Server
 HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8000"))
