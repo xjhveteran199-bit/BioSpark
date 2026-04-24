@@ -12,13 +12,25 @@ import csv
 import io
 import json
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
+from sqlalchemy import desc, select, update
 
+from backend.auth import get_current_user
+from backend.config import CHECKPOINTS_DIR
+from backend.database import async_session
+from backend.models.training_history import ModelCheckpoint, TrainingRun
+from backend.models.user import User
 from backend.services.dataset_loader import load_labeled_dataset
+from backend.services import dataset_cache
+
+# Sentinel user id used when no authenticated user is present (single-user mode)
+_DEFAULT_USER_ID = 0
 
 # Lazy-import trainer (depends on torch, which may not be available on serverless)
 _trainer_module = None
@@ -32,8 +44,8 @@ def _get_trainer():
 
 router = APIRouter()
 
-# In-memory dataset store keyed by dataset_id
-_dataset_cache: dict[str, dict] = {}
+# In-memory dataset store keyed by dataset_id (shared with prep router)
+_dataset_cache = dataset_cache._dataset_cache  # backward-compat alias
 
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024  # 200 MB
 
@@ -180,6 +192,8 @@ class TrainStartRequest(BaseModel):
     auto_mode: bool = Field(default=False, description="Enable auto LR finder, architecture selection, and class weights")
     early_stopping_patience: int = Field(default=10, ge=3, le=50, description="Epochs without improvement before early stop")
     use_class_weights: bool = Field(default=True, description="Auto-compute class weights for imbalanced data")
+    # Self-improving (warm-start) field
+    warm_start: bool = Field(default=False, description="Continue training from this user's last best checkpoint when shapes are compatible")
 
 
 @router.post("/train/assess")
@@ -207,8 +221,147 @@ async def assess_dataset(dataset_id: str):
         raise HTTPException(status_code=500, detail=f"Assessment failed: {exc}")
 
 
+async def _resolve_warm_start(
+    user_id: int,
+    summary: dict,
+) -> tuple[Optional[str], Optional[int]]:
+    """Find the most recent active checkpoint for `user_id` whose input shape
+    is compatible with the dataset's summary.
+
+    Returns (file_path, checkpoint_id) or (None, None) if no compatible
+    checkpoint exists.
+    """
+    n_classes = len(summary.get("class_names", []) or [])
+    n_channels = summary.get("n_channels", 1) or 1
+    async with async_session() as db:
+        # Prefer the user's active checkpoint, fall back to most recent
+        stmt = (
+            select(ModelCheckpoint)
+            .where(ModelCheckpoint.user_id == user_id)
+            .order_by(desc(ModelCheckpoint.is_active), desc(ModelCheckpoint.version))
+        )
+        rows = (await db.execute(stmt)).scalars().all()
+        for ckpt in rows:
+            shape = ckpt.input_shape or {}
+            # Class count must match for full warm-start; we still allow
+            # partial (features only) when n_channels matches.
+            if shape.get("n_channels", 1) != n_channels:
+                continue
+            if not Path(ckpt.file_path).exists():
+                continue
+            return ckpt.file_path, ckpt.id
+    return None, None
+
+
+def _make_on_complete(
+    user_id: int,
+    job_id: str,
+    summary: dict,
+    config: dict,
+    warm_started_from_id: Optional[int],
+):
+    """Build the async callback that persists a finished training run."""
+    async def _persist(job):
+        try:
+            import torch
+            from backend.services.trainer import TrainingJob
+
+            user_dir = CHECKPOINTS_DIR / str(user_id)
+            user_dir.mkdir(parents=True, exist_ok=True)
+
+            # Compute next version number for this user
+            async with async_session() as db:
+                last = await db.execute(
+                    select(ModelCheckpoint.version)
+                    .where(ModelCheckpoint.user_id == user_id)
+                    .order_by(desc(ModelCheckpoint.version))
+                    .limit(1)
+                )
+                last_version = last.scalar_one_or_none() or 0
+                next_version = last_version + 1
+
+                file_path = user_dir / f"v{next_version}.pt"
+
+                # Save checkpoint with full metadata so warm-start does
+                # not depend on the DB to validate compatibility.
+                payload = {
+                    "state_dict": job.model.state_dict() if job.model is not None else {},
+                    "n_classes": len(job.class_names),
+                    "class_names": list(job.class_names),
+                    "input_shape": {
+                        "n_channels": int(job.n_channels),
+                        "signal_length": int(job.signal_length or 0),
+                    },
+                    "arch_config": job.model.arch_config if job.model is not None else None,
+                }
+                torch.save(payload, str(file_path))
+
+                # Record the training run
+                run = TrainingRun(
+                    user_id=user_id,
+                    job_id=job_id,
+                    dataset_summary=_jsonable(summary),
+                    config=_jsonable(config),
+                    best_val_acc=float(job.best_val_acc or 0.0),
+                    status="completed",
+                    warm_started_from_id=warm_started_from_id,
+                    completed_at=datetime.now(timezone.utc),
+                )
+                db.add(run)
+                await db.flush()  # gives run.id
+
+                # Deactivate any previous active checkpoint for this user
+                await db.execute(
+                    update(ModelCheckpoint)
+                    .where(ModelCheckpoint.user_id == user_id, ModelCheckpoint.is_active == True)  # noqa: E712
+                    .values(is_active=False)
+                )
+
+                ckpt = ModelCheckpoint(
+                    user_id=user_id,
+                    training_run_id=run.id,
+                    version=next_version,
+                    file_path=str(file_path),
+                    n_classes=len(job.class_names),
+                    class_names=list(job.class_names),
+                    input_shape={
+                        "n_channels": int(job.n_channels),
+                        "signal_length": int(job.signal_length or 0),
+                    },
+                    best_val_acc=float(job.best_val_acc or 0.0),
+                    is_active=True,
+                )
+                db.add(ckpt)
+                await db.commit()
+        except Exception:
+            # Persistence is best-effort; never let it break the training thread
+            import traceback as _tb
+            _tb.print_exc()
+
+    return _persist
+
+
+def _jsonable(obj):
+    """Filter dict/list to JSON-safe primitives (drop bytes / numpy scalars)."""
+    if isinstance(obj, dict):
+        return {k: _jsonable(v) for k, v in obj.items() if not isinstance(v, (bytes, bytearray))}
+    if isinstance(obj, list):
+        return [_jsonable(v) for v in obj]
+    if hasattr(obj, "item"):  # numpy scalar
+        try:
+            return obj.item()
+        except Exception:
+            return str(obj)
+    if isinstance(obj, (str, int, float, bool)) or obj is None:
+        return obj
+    return str(obj)
+
+
 @router.post("/train/start")
-async def start_training(req: TrainStartRequest):
+async def start_training(
+    req: TrainStartRequest,
+    user: Optional[User] = Depends(get_current_user),
+):
     """
     Start a training job on a previously uploaded dataset.
 
@@ -217,6 +370,10 @@ async def start_training(req: TrainStartRequest):
 
     When ``preset`` is set to a non-custom value, the preset's hyperparameters
     are used as defaults and any explicit request fields override them.
+
+    When ``warm_start`` is true and the user has a compatible prior
+    checkpoint, training continues from those weights (self-improving model).
+    Falls back to a sentinel user_id=0 in single-user / no-auth mode.
     """
     entry = _dataset_cache.get(req.dataset_id)
     if entry is None:
@@ -234,9 +391,27 @@ async def start_training(req: TrainStartRequest):
         "auto_mode": req.auto_mode if req.preset == "custom" else preset_cfg["auto_mode"],
         "early_stopping_patience": req.early_stopping_patience if req.preset == "custom" else preset_cfg["early_stopping_patience"],
         "use_class_weights": req.use_class_weights if req.preset == "custom" else preset_cfg["use_class_weights"],
+        "warm_start": req.warm_start,
     }
 
     job_id = str(uuid.uuid4())[:8]
+    user_id = user.id if user is not None else _DEFAULT_USER_ID
+
+    warm_path: Optional[str] = None
+    warm_from_id: Optional[int] = None
+    if req.warm_start:
+        try:
+            warm_path, warm_from_id = await _resolve_warm_start(user_id, entry["summary"])
+        except Exception:
+            warm_path, warm_from_id = None, None
+
+    on_complete = _make_on_complete(
+        user_id=user_id,
+        job_id=job_id,
+        summary=entry["summary"],
+        config=config,
+        warm_started_from_id=warm_from_id,
+    )
 
     try:
         _get_trainer().training_manager.start(
@@ -245,11 +420,20 @@ async def start_training(req: TrainStartRequest):
             filename=entry["filename"],
             summary=entry["summary"],
             config=config,
+            user_id=user_id,
+            warm_start_path=warm_path,
+            warm_started_from_id=warm_from_id,
+            on_complete=on_complete,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to start training: {exc}")
 
-    return {"job_id": job_id, "status": "started", "config": config}
+    return {
+        "job_id": job_id,
+        "status": "started",
+        "config": config,
+        "warm_started_from_id": warm_from_id,
+    }
 
 
 @router.get("/train/{job_id}/status")

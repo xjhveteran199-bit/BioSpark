@@ -149,6 +149,10 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:6px"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
                 <span data-en="Analyze" data-zh="推理分析">Analyze</span>
             </button>
+            <button class="mode-tab" data-mode="prep" onclick="App.switchMode('prep')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:6px"><path d="M3 3h18v4H3zM3 10h18v4H3zM3 17h18v4H3z"/></svg>
+                <span data-en="Data Prep" data-zh="数据整理">Data Prep</span>
+            </button>
             <button class="mode-tab" data-mode="train" onclick="App.switchMode('train')">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:6px"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
                 <span data-en="Train" data-zh="模型训练">Train</span>
@@ -156,6 +160,10 @@
             <button class="mode-tab" data-mode="monitor" onclick="App.switchMode('monitor')">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:6px"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
                 <span data-en="Monitor" data-zh="实时监测">Monitor</span>
+            </button>
+            <button class="mode-tab" data-mode="my-models" onclick="App.switchMode('my-models')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:6px"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                <span data-en="My Models" data-zh="我的模型">My Models</span>
             </button>
         </div>
 
@@ -436,6 +444,16 @@
                     </label>
                 </div>
             </div>
+            <!-- Self-Improving (warm-start) -->
+            <div class="auto-mode-bar" style="margin-top:0.75rem;">
+                <label class="toggle-label">
+                    <input type="checkbox" id="cfg-warm-start" disabled>
+                    <span data-en="Continue from my last model (Self-Improving)" data-zh="从我的上一个模型继续训练（自我改进）">Continue from my last model (Self-Improving)</span>
+                </label>
+                <small id="warm-start-hint" style="color:var(--text-secondary);font-size:0.78rem;display:block;margin-top:0.25rem;"
+                       data-en="No compatible prior checkpoint. Train one first; then this option will activate."
+                       data-zh="尚无兼容的历史 checkpoint，先训练一次后该选项即可启用。">No compatible prior checkpoint. Train one first; then this option will activate.</small>
+            </div>
             <div style="margin-top:1rem;display:flex;gap:0.75rem;">
                 <button id="train-start-btn" class="btn primary" data-en="Start Training" data-zh="开始训练">Start Training</button>
                 <button id="train-stop-btn" class="btn secondary hidden" data-en="Stop" data-zh="停止" disabled>Stop</button>
@@ -591,11 +609,139 @@
 
             <!-- Bulk download -->
             <div class="export-bar" style="margin-top:1.5rem;">
-                <button class="btn primary" onclick="Figures.downloadAllFigures()" data-en="Download All Figures (ZIP)" data-zh="下载全部图表 (ZIP)">Download All Figures (ZIP)</button>
+                <button class="btn primary" onclick="Figures.downloadAllFigures(this)" data-en="Download All Figures (ZIP)" data-zh="下载全部图表 (ZIP)">Download All Figures (ZIP)</button>
             </div>
         </section>
 
         </div><!-- end #train-mode -->
+
+        <!-- ═══════════════ DATA PREP MODE ═══════════════ -->
+        <div id="prep-mode" class="hidden">
+
+        <section class="card">
+            <h2 data-en="Data Preparation" data-zh="数据整理">Data Preparation</h2>
+            <p class="section-hint" data-en="Convert raw recordings into a training-ready CSV. Pick a mode based on what your archive looks like, then fill in sampling rate, segment length, and labels."
+               data-zh="把原始录制数据切分成可直接训练的 CSV。根据压缩包结构选模式，填写采样率、片段长度与标签。">
+                Convert raw recordings into a training-ready CSV. Pick a mode based on what your archive looks like, then fill in sampling rate, segment length, and labels.
+            </p>
+
+            <!-- Step P1: Mode selector -->
+            <div id="prep-step-mode" style="margin-top:1.5rem;">
+                <h3 data-en="Step 1 — Choose Input Mode" data-zh="步骤 1 — 选择输入模式">Step 1 — Choose Input Mode</h3>
+                <div class="mode-card-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin-top:0.75rem;">
+                    <div class="mode-card prep-mode-card" data-prep-mode="A" onclick="Prep.selectMode('A')">
+                        <strong data-en="Mode A — Folder per class" data-zh="模式 A — 每文件夹一个类别">Mode A — Folder per class</strong>
+                        <p style="font-size:0.85rem;color:#64748b;margin:0.5rem 0 0;"
+                           data-en="ZIP with class_name/recording.csv. Each CSV is one long recording; folder name is the label."
+                           data-zh="ZIP 内 class_name/recording.csv 结构。每个 CSV 是一段长录制，文件夹名即标签。">
+                            ZIP with class_name/recording.csv. Each CSV is one long recording; folder name is the label.
+                        </p>
+                    </div>
+                    <div class="mode-card prep-mode-card" data-prep-mode="B" onclick="Prep.selectMode('B')">
+                        <strong data-en="Mode B — CSV + intervals" data-zh="模式 B — CSV + 时间区间">Mode B — CSV + intervals</strong>
+                        <p style="font-size:0.85rem;color:#64748b;margin:0.5rem 0 0;"
+                           data-en="A single long CSV plus a table of [start_sec, end_sec, label] rows. We slice and window each interval."
+                           data-zh="一个长 CSV + 一份 [起始秒, 结束秒, 标签] 列表。系统按区间切片并窗化。">
+                            A single long CSV plus a table of [start_sec, end_sec, label] rows. We slice and window each interval.
+                        </p>
+                    </div>
+                    <div class="mode-card prep-mode-card" data-prep-mode="C" onclick="Prep.selectMode('C')">
+                        <strong data-en="Mode C — Generic ZIP" data-zh="模式 C — 通用 ZIP">Mode C — Generic ZIP</strong>
+                        <p style="font-size:0.85rem;color:#64748b;margin:0.5rem 0 0;"
+                           data-en="Any ZIP of CSVs. You manually map each file to a class label."
+                           data-zh="任意 CSV 压缩包。你手动指定每个文件对应的类别。">
+                            Any ZIP of CSVs. You manually map each file to a class label.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step P2: Upload -->
+            <div id="prep-step-upload" class="hidden" style="margin-top:1.5rem;">
+                <h3><span data-en="Step 2 — Upload Raw Data" data-zh="步骤 2 — 上传原始数据">Step 2 — Upload Raw Data</span>
+                    <span id="prep-upload-hint" style="font-size:0.85rem;color:#64748b;font-weight:normal;margin-left:0.5rem;"></span>
+                </h3>
+                <div id="prep-drop-zone" class="drop-zone" style="margin-top:0.75rem;">
+                    <div style="font-size:2rem;">⬆</div>
+                    <p data-en="Drop file here or click to browse" data-zh="拖放文件到此处，或点击选择">Drop file here or click to browse</p>
+                    <input type="file" id="prep-file-input" style="display:none;">
+                </div>
+                <div id="prep-upload-status" class="status hidden" style="margin-top:0.5rem;"></div>
+            </div>
+
+            <!-- Step P3: Config -->
+            <div id="prep-step-config" class="hidden" style="margin-top:1.5rem;">
+                <h3 data-en="Step 3 — Configure Segmentation" data-zh="步骤 3 — 配置切分参数">Step 3 — Configure Segmentation</h3>
+                <div class="train-config-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-top:0.75rem;">
+                    <label><span data-en="Sampling Rate (Hz)" data-zh="采样率 (Hz)">Sampling Rate (Hz)</span>
+                        <input type="number" id="prep-sr" value="250" min="1" step="1">
+                    </label>
+                    <label><span data-en="Segment Length (sec)" data-zh="片段长度 (秒)">Segment Length (sec)</span>
+                        <input type="number" id="prep-seglen" value="2" min="0.01" step="0.1">
+                    </label>
+                    <label><span data-en="Overlap Ratio (0–0.9)" data-zh="重叠比例 (0–0.9)">Overlap Ratio (0–0.9)</span>
+                        <input type="number" id="prep-overlap" value="0" min="0" max="0.9" step="0.05">
+                    </label>
+                    <label><span data-en="Signal Column Index (0-based)" data-zh="信号列索引 (从 0 开始)">Signal Column Index (0-based)</span>
+                        <input type="number" id="prep-sigcol" value="0" min="0" step="1">
+                    </label>
+                </div>
+
+                <!-- Mode B intervals editor -->
+                <div id="prep-mode-b-fields" class="hidden" style="margin-top:1rem;">
+                    <h4 data-en="Label Intervals" data-zh="标签时间区间">Label Intervals</h4>
+                    <table id="prep-intervals-table" style="width:100%;border-collapse:collapse;margin-top:0.5rem;">
+                        <thead><tr style="background:#f1f5f9;">
+                            <th style="padding:0.5rem;text-align:left;" data-en="Start (sec)" data-zh="起始秒">Start (sec)</th>
+                            <th style="padding:0.5rem;text-align:left;" data-en="End (sec)" data-zh="结束秒">End (sec)</th>
+                            <th style="padding:0.5rem;text-align:left;" data-en="Label" data-zh="标签">Label</th>
+                            <th></th>
+                        </tr></thead>
+                        <tbody id="prep-intervals-body"></tbody>
+                    </table>
+                    <button class="btn" type="button" onclick="Prep.addInterval()" style="margin-top:0.5rem;"
+                            data-en="+ Add Interval" data-zh="+ 添加区间">+ Add Interval</button>
+                </div>
+
+                <!-- Mode C file mapping -->
+                <div id="prep-mode-c-fields" class="hidden" style="margin-top:1rem;">
+                    <h4 data-en="File → Label Mapping" data-zh="文件 → 标签 映射">File → Label Mapping</h4>
+                    <table id="prep-filemap-table" style="width:100%;border-collapse:collapse;margin-top:0.5rem;font-size:0.9rem;">
+                        <thead><tr style="background:#f1f5f9;">
+                            <th style="padding:0.5rem;text-align:left;" data-en="File" data-zh="文件">File</th>
+                            <th style="padding:0.5rem;text-align:left;" data-en="Rows" data-zh="行数">Rows</th>
+                            <th style="padding:0.5rem;text-align:left;" data-en="Label (leave blank to skip)" data-zh="标签（留空则跳过）">Label (leave blank to skip)</th>
+                        </tr></thead>
+                        <tbody id="prep-filemap-body"></tbody>
+                    </table>
+                </div>
+
+                <div style="margin-top:1.25rem;display:flex;gap:0.75rem;align-items:center;">
+                    <button class="btn primary" id="prep-run-btn" onclick="Prep.runSegmentation()"
+                            data-en="Generate Training CSV" data-zh="生成训练 CSV">Generate Training CSV</button>
+                    <span id="prep-run-status" class="status hidden"></span>
+                </div>
+            </div>
+
+            <!-- Step P4: Preview -->
+            <div id="prep-step-preview" class="hidden" style="margin-top:1.5rem;">
+                <h3 data-en="Step 4 — Preview" data-zh="步骤 4 — 预览">Step 4 — Preview</h3>
+                <div id="prep-summary-bar" style="margin-top:0.5rem;font-size:0.95rem;color:#475569;"></div>
+                <div id="prep-class-chart" style="height:260px;margin-top:0.75rem;"></div>
+                <div id="prep-class-table" style="margin-top:0.75rem;"></div>
+                <div id="prep-data-preview" style="margin-top:0.75rem;overflow-x:auto;"></div>
+            </div>
+
+            <!-- Step P5: Actions -->
+            <div id="prep-actions" class="hidden export-bar" style="margin-top:1.5rem;display:flex;gap:0.75rem;">
+                <button class="btn primary" onclick="Prep.useForTraining(this)"
+                        data-en="Use for Training" data-zh="用于训练">Use for Training</button>
+                <button class="btn" onclick="Prep.downloadCsv()"
+                        data-en="Download CSV" data-zh="下载 CSV">Download CSV</button>
+            </div>
+        </section>
+
+        </div><!-- end #prep-mode -->
 
         <!-- ═══════════════ MONITOR MODE (Real-time Streaming) ═══════════════ -->
         <div id="monitor-mode" class="hidden">
@@ -705,6 +851,23 @@
 
         </div><!-- end #monitor-mode -->
 
+        <!-- ═══════════════ MY MODELS MODE ═══════════════ -->
+        <div id="my-models-mode" class="hidden">
+            <section class="card">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <h2 data-en="M1. Self-Improving Model History" data-zh="M1. 自我改进模型历史">M1. Self-Improving Model History</h2>
+                    <button id="my-models-refresh" class="btn small" data-en="Refresh" data-zh="刷新">Refresh</button>
+                </div>
+                <p style="color:var(--text-secondary);font-size:0.9rem;margin:0.25rem 0 1rem;"
+                   data-en="Each training run is saved as a versioned checkpoint. Enable 'Self-Improving' on the next training to warm-start from the active version."
+                   data-zh="每次训练都会保存为带版本号的 checkpoint。在下次训练时启用「自我改进」即可从当前激活版本继续训练。">
+                    Each training run is saved as a versioned checkpoint. Enable 'Self-Improving' on the next training to warm-start from the active version.
+                </p>
+                <div id="my-models-chart" style="height:280px;"></div>
+                <div id="my-models-list" style="margin-top:1rem;"></div>
+            </section>
+        </div><!-- end #my-models-mode -->
+
     </main>
 
     <footer>
@@ -721,8 +884,10 @@
     <script src="js/gradcam.js?v=1"></script>
     <script src="js/streaming.js?v=1"></script>
     <script src="js/trainer.js?v=4"></script>
-    <script src="js/figures.js?v=1"></script>
-    <script src="js/app.js?v=5"></script>
+    <script src="js/figures.js?v=2"></script>
+    <script src="js/prep.js?v=1"></script>
+    <script src="js/my_models.js?v=1"></script>
+    <script src="js/app.js?v=7"></script>
     <script>
         // Auto-mode toggle visibility
         document.getElementById('cfg-auto-mode')?.addEventListener('change', function() {

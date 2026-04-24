@@ -1,6 +1,6 @@
 # BioSpark 项目研发报告
 
-> **版本:** v0.8.0 | **日期:** 2026-04-19 | **状态:** 已上线运营
+> **版本:** v0.9.0 | **日期:** 2026-04-25 | **状态:** 已上线运营
 
 ---
 
@@ -205,7 +205,98 @@
 
 ---
 
-## 五、v0.8 新增功能（智能引导训练 + 数据质量评估）
+## 五、v0.9 新增功能（数据整理工作流 + 自我改进模型 + Bug 修复）
+
+> **发布日期：** 2026-04-25 | **目标用户：** 上传原始压缩包的科研用户 / 持续训练的复用场景
+
+### 5.1 数据整理工作流（Data Prep）
+
+**痛点：** 训练器要求 CSV 每行已是切好的样本，但用户实际上传的常常是原始 zip / 长 CSV。手动滑窗预处理门槛高。
+
+**解决方案：** 在导航栏新增「数据整理」Tab，由后端自动滑窗 + 生成训练器可直接消费的 CSV，并一键导入训练。三种模式可选：
+
+| 模式 | 输入 | 工作方式 | 典型场景 |
+|------|------|---------|---------|
+| **Mode A** | folder-per-class zip，每个 CSV 是一段长录制 | 自动按 `seg_sec × sr` 滑窗，标签取自父目录名 | 已按类别归档的录制数据 |
+| **Mode B** | 单个长 CSV + label 时间区间表 | 用户在 UI 增删 `[start_sec, end_sec, label]` 行，按区间裁切 + 滑窗 | 长录制带事件时间戳 |
+| **Mode C** | 通用 zip | UI 渲染映射表，用户为每个文件指定 label + 信号列索引 | 文件命名无规律 |
+
+**后端实现：**
+- `backend/services/data_preparator.py` — 三个 segmenter 共享 `_window_signal()`，内部复用现有 `preprocess._segment` 滑窗原语
+- `backend/routers/prep.py` — 4 条 API：`POST /api/prep/inspect`（预填表单）/ `POST /api/prep/segment`（生成 CSV）/ `GET /api/prep/{id}/download` / `POST /api/prep/{id}/promote`（注入训练缓存）
+- `backend/services/dataset_cache.py` — 抽出共享缓存，避免 prep ↔ training 循环依赖
+- 输出超过 50,000 行时拒绝（防爆炸）；LRU 上限 16 个 prep 缓存
+
+**前端实现：**
+- `frontend/js/prep.js` — 模式卡片 → drop-zone → 配置表单 → 预览图表 → 「Use for Training」一键跳转 Train Tab 并自动加载数据集
+- 复用 trainer 的 `_renderClassChart` / `_renderClassTable`，无重复代码
+
+### 5.2 自我改进模型（Self-Improving Warm-Start）
+
+**痛点：** 用户每次上传新数据都从零训练，已积累的模型成果无法持续利用。
+
+**解决方案：** 每个用户私有的 checkpoint 链。每次训练结束自动落库为版本化 `.pt`，下次训练可勾选「Continue from my last model」从最近兼容版本继续训练 → 模型随使用次数累积变好。
+
+**架构：**
+
+```
+TrainingRun (per-user 历史)         ModelCheckpoint (per-user 版本链)
+├─ id, user_id, job_id              ├─ id, user_id, training_run_id
+├─ dataset_summary (JSON)           ├─ version (按用户自增)
+├─ config (JSON)                    ├─ file_path  (data/checkpoints/{uid}/v{N}.pt)
+├─ best_val_acc                     ├─ n_classes, class_names, input_shape
+├─ warm_started_from_id ──────────► ├─ best_val_acc
+└─ created_at, completed_at         ├─ is_active (每用户唯一 True)
+                                    └─ created_at
+```
+
+**Warm-start 兼容策略：** PyTorch `state_dict` 形状过滤式加载，三种状态：
+- **full** — 全部权重匹配，完整继承
+- **partial** — features 层匹配但分类头形状不一致（n_classes 变了），仅迁移特征提取，分类头随机重初始化
+- **skipped** — 无任何兼容键，相当于从零训练
+
+任何不匹配通过 WebSocket `{"type":"warmstart", "status":...}` 上报，绝不抛错。
+
+**Checkpoint 序列化格式：** 不再裸存 state_dict，而是包装为 `{state_dict, n_classes, class_names, input_shape:{n_channels, signal_length}, arch_config}`，让 warm-start 不依赖 DB 也能自校验形状。
+
+**单机回退：** `Depends(get_current_user)` 返回 `Optional[User]`；无 Token 时回退到 sentinel `_DEFAULT_USER_ID = 0`，保持单机/无 Auth 模式可用。
+
+**新增「My Models」Tab：**
+- Plotly 折线图展示 `best_val_acc` 随版本演化（v1 → v2 → v3 ...）
+- 版本表：每行含 v# / val acc / 类别数 / 输入 shape / 创建时间 / Activate / Delete
+- Activate：单事务清零旧 active + 置新行 `is_active=True`
+- Delete：先删磁盘文件（best-effort），删 DB 行；若删的是 active，自动提升次新版本为 active
+
+**后端文件：**
+- `backend/models/training_history.py` — `TrainingRun` + `ModelCheckpoint` ORM
+- `backend/routers/model_history.py` — `GET /api/models/history`、`POST /api/models/{id}/activate`、`DELETE /api/models/{id}`
+- `backend/services/trainer.py` — `TrainingJob` 接 `user_id / warm_start_path / on_complete`；`_run_training` 增加 warm-start 块 + 完成后 `run_coroutine_threadsafe(on_complete, loop)` 落库
+- `backend/routers/training.py` — `TrainStartRequest.warm_start: bool` 字段；`_resolve_warm_start()` 按 shape 兼容性查最近 active checkpoint；`_make_on_complete()` 构造单事务持久化回调
+- `backend/config.py` — `CHECKPOINTS_DIR = data/checkpoints/` 自动创建
+
+**前端文件：**
+- `frontend/js/my_models.js` — 新模块（版本表 + Plotly sparkline + Activate/Delete 操作）
+- `frontend/js/trainer.js` — `_refreshWarmStartToggle(data)` 数据集加载后按 shape 拉历史并启用复选框；训练完成后自动 `MyModels.refresh()`
+- `frontend/index.html` — Train 配置面板新增 warm-start 复选框 + 兼容性提示；顶部新增 My Models Tab + 完整 section
+
+### 5.3 Bug 修复：训练结果图打包下载
+
+**症状：** `GET /api/train/{id}/figures/all.zip` 静默 500 / 浏览器收不到响应。
+
+**根因：**
+1. 5 张图 × (png + svg) 共 10 次 matplotlib 渲染串行 await，无超时保护
+2. 任一 figure 渲染抛异常即终止整个 zip（all-or-nothing）
+3. 响应缺 `Content-Length`，部分浏览器对 attachment 处理异常
+
+**修复：**
+- 后端 `backend/routers/figures.py` — 重写 `download_all_figures`：使用 `asyncio.gather` 并发渲染 + `asyncio.wait_for(timeout=180)` 防挂死；每张图 `try/except` 包裹，失败时写 `<name>.failed.txt`（含 traceback）入 zip 而非整体抛错；显式设置 `Content-Length` header；README 顶部追加 "Generated X/total artifacts"
+- 前端 `frontend/js/figures.js` — `downloadAllFigures(triggerBtn)` 从隐藏锚点点击改为 fetch + blob：失败时 `App.toast` 弹错误而非静默失败；下载期间禁用按钮 + spinner；blob URL 30 秒后 revoke
+
+**结果：** 即使某张图渲染失败（如 t-SNE perplexity 异常）用户仍能下载 zip + 看到失败原因；同模式应用到 `exportModel` / `exportHistory` 防同类 bug。
+
+---
+
+## 六、v0.8 新增功能（智能引导训练 + 数据质量评估）
 
 > **发布日期：** 2026-04-19 | **目标用户：** 无深度学习背景的研究生
 
@@ -632,12 +723,15 @@ Output: 53-class probabilities  |  Params: 388K
 | 端点 | 方法 | 功能 |
 |------|------|------|
 | `/api/train/upload` | POST | 上传标注训练数据集 |
-| `/api/train/start` | POST | 启动训练任务（支持 auto_mode） |
-| `/api/train/ws/{id}` | WebSocket | 实时训练指标流 |
+| `/api/train/start` | POST | 启动训练任务（支持 auto_mode + 🆕 warm_start） |
+| `/api/train/ws/{id}` | WebSocket | 实时训练指标流（🆕 含 warmstart 事件） |
 | `/api/train/{id}/status` | GET | 轮询训练状态 |
 | `/api/train/{id}/confusion_matrix` | GET | 获取混淆矩阵 |
 | `/api/train/{id}/tsne` | GET | 获取 t-SNE 投影 |
-| `/api/train/{id}/gradcam` | GET | 🆕 训练后 Grad-CAM 注意力分析 |
+| `/api/train/{id}/gradcam` | GET | 训练后 Grad-CAM 注意力分析 |
+| `/api/train/{id}/interpret` | GET | 训练结果自然语言解读 |
+| `/api/train/presets` | GET | 训练预设列表 |
+| `/api/train/assess` | POST | 数据质量评估 |
 
 ### 10.3 导出 API
 
@@ -710,28 +804,65 @@ Output: 53-class probabilities  |  Params: 388K
 |------|------|------|
 | `/api/stream/ws` | WebSocket | 双向流式推理（JSON 协议，支持 demo/device 模式） |
 
-**WebSocket 消息协议：** 见第五章 5.2 节通信协议表。
+**WebSocket 消息协议：** 见第七章（v0.7）通信协议表。
+
+### 10.8 🆕 数据整理 API（v0.9 新增）
+
+| 端点 | 方法 | 功能 |
+|------|------|------|
+| `/api/prep/inspect` | POST | 检查上传的 zip / CSV，返回元数据用于表单预填 |
+| `/api/prep/segment` | POST | 按 mode (A/B/C) + 配置生成训练就绪 CSV |
+| `/api/prep/{dataset_id}/download` | GET | 下载生成的 CSV |
+| `/api/prep/{dataset_id}/promote` | POST | 注入训练缓存，可立即用于训练 |
+
+**Mode 配置：**
+- Mode A: `{sampling_rate, segment_length_sec, overlap_ratio, signal_col_index}`
+- Mode B: `{sampling_rate, segment_length_sec, overlap_ratio, intervals: [{start_sec, end_sec, label}]}`
+- Mode C: `{sampling_rate, segment_length_sec, overlap_ratio, file_label_map: {filename: label}}`
+
+### 10.9 🆕 自我改进模型 API（v0.9 新增）
+
+| 端点 | 方法 | 功能 |
+|------|------|------|
+| `/api/models/history` | GET | 列出当前用户的训练历史 + checkpoint 版本链 |
+| `/api/models/{checkpoint_id}/activate` | POST | 设置某 checkpoint 为 warm-start 默认源 |
+| `/api/models/{checkpoint_id}` | DELETE | 删除 checkpoint 文件 + DB 行 |
+
+**响应格式（history）：**
+```json
+{
+  "user_id": 1,
+  "runs": [{"id": 5, "job_id": "ab12cd34", "best_val_acc": 0.92, "warm_started_from_id": 3, ...}],
+  "checkpoints": [
+    {"id": 4, "version": 2, "n_classes": 5, "input_shape": {"n_channels": 1, "signal_length": 187},
+     "best_val_acc": 0.92, "is_active": true, "created_at": "..."}
+  ]
+}
+```
 
 ---
 
-## 十一、项目文件结构（v0.7）
+## 十一、项目文件结构（v0.9）
 
 ```
 backend/
-├── main.py                       # FastAPI 主入口 + 路由注册 + Lifespan DB 初始化
-├── config.py                     # MODEL_REGISTRY, PREPROCESS_CONFIG
-├── auth.py                       # JWT 创建/验证、bcrypt 哈希、FastAPI 鉴权依赖
+├── main.py                       # FastAPI 主入口 + 路由注册（🔄 v0.9 注册 prep + model_history）
+├── config.py                     # MODEL_REGISTRY + 🆕 CHECKPOINTS_DIR
+├── auth.py                       # JWT + Optional[User] 单机回退
 ├── database.py                   # SQLAlchemy 异步引擎、Session 工厂、init_db()
 ├── routers/
 │   ├── auth.py                   # 用户认证 API（register/login/me）
 │   ├── upload.py                 # 文件上传解析
-│   ├── analysis.py               # 模型推理 + 🆕 Grad-CAM 端点 + _prepare_segments()
+│   ├── analysis.py               # 模型推理 + Grad-CAM 端点
 │   ├── models.py                 # 模型列表
-│   ├── training.py               # 训练 API + WebSocket + 🆕 训练后 Grad-CAM
-│   ├── figures.py                # 出版图表 API (Phase 6)
-│   └── streaming.py              # 🆕 WebSocket 流式推理端点（demo/device 模式）
+│   ├── training.py               # 训练 API + WebSocket（🔄 v0.9 warm_start + on_complete 落库）
+│   ├── figures.py                # 出版图表 API（🔄 v0.9 修复 zip 下载 bug）
+│   ├── streaming.py              # WebSocket 流式推理端点
+│   ├── prep.py                   # 🆕 v0.9 数据整理 API（inspect/segment/download/promote）
+│   └── model_history.py          # 🆕 v0.9 模型历史 API（list/activate/delete）
 ├── models/
-│   ├── user.py                   # User 数据库模型（SQLAlchemy ORM）
+│   ├── user.py                   # User ORM
+│   ├── training_history.py       # 🆕 v0.9 TrainingRun + ModelCheckpoint ORM
 │   ├── ecg_arrhythmia_cnn.pt     # 94.1% 准确率
 │   ├── eeg_sleep_staging.pt      # 训练中
 │   └── emg_gesture_cnn.pt        # 42.7% 准确率
@@ -739,27 +870,37 @@ backend/
     ├── format_parser.py          # CSV/EDF/MAT 解析
     ├── preprocess.py             # ECG/EEG/EMG 预处理
     ├── predictor.py              # PyTorch/ONNX/Demo 推理
-    ├── trainer.py                # Signal1DCNN + 训练循环（支持动态架构）
-    ├── dataset_loader.py         # 标注数据集解析
-    ├── auto_optimizer.py         # LR finder / Early Stopping / 类别权重 / 架构选择
-    ├── publication_figures.py    # Matplotlib 出版图表渲染（5种）
-    ├── gradcam.py                # 🆕 GradCAM1D — PyTorch Hook 注意力热力图引擎
-    └── streaming.py              # 🆕 StreamingSession — 流式推理 + 合成信号生成
+    ├── trainer.py                # Signal1DCNN + 训练循环（🔄 v0.9 warm-start + 持久化回调）
+    ├── dataset_loader.py         # 标注数据集解析（🔄 v0.9 +load_labeled_dataframe）
+    ├── auto_optimizer.py         # LR finder / Early Stopping / 类别权重
+    ├── publication_figures.py    # Matplotlib 出版图表渲染
+    ├── gradcam.py                # GradCAM1D 注意力热力图引擎
+    ├── streaming.py              # StreamingSession 流式推理
+    ├── data_preparator.py        # 🆕 v0.9 三模式滑窗 segmenter（A/B/C）
+    └── dataset_cache.py          # 🆕 v0.9 prep ↔ training 共享缓存
+
+data/
+└── checkpoints/{user_id}/        # 🆕 v0.9 per-user 模型版本链
+    ├── v1.pt
+    ├── v2.pt
+    └── ...
 
 frontend/
-├── index.html                    # 主页（🔄 v0.7 新增 Grad-CAM 区块 + Monitor 模式）
-├── css/style.css                 # 暗色主题（🔄 v0.7 +385行 Grad-CAM/Streaming 样式）
+├── index.html                    # 主页（🔄 v0.9 新增 Data Prep + My Models 两个 Tab）
+├── css/style.css                 # 暗色主题
 └── js/
-    ├── auth.js                   # 认证模块（登录/注册/Token 管理/模态弹窗）
-    ├── login-animations.js       # 科幻登录页动画（Canvas粒子网络/波形/HUD）
-    ├── app.js                    # 语言切换、模式切换（🔄 Monitor 模式 + Grad-CAM 触发）
+    ├── auth.js                   # 认证模块
+    ├── login-animations.js       # 科幻登录页动画
+    ├── app.js                    # 模式切换（🔄 v0.9 +prep / +my-models）
     ├── uploader.js               # 推理文件上传
     ├── visualizer.js             # Plotly 信号可视化
     ├── results.js                # 推理结果展示
-    ├── trainer.js                # 训练控制台（🔄 训练后 Grad-CAM 调用）
-    ├── figures.js                # 出版图表预览 + 下载
-    ├── gradcam.js                # 🆕 Grad-CAM 双轴叠加可视化 + 信息面板
-    └── streaming.js              # 🆕 实时流式推理 WebSocket 客户端 + Monitor 仪表盘
+    ├── trainer.js                # 训练控制台（🔄 v0.9 warm-start toggle + history refresh）
+    ├── figures.js                # 出版图表（🔄 v0.9 修复 zip 下载用 fetch+blob）
+    ├── gradcam.js                # Grad-CAM 可视化
+    ├── streaming.js              # 实时流式推理客户端
+    ├── prep.js                   # 🆕 v0.9 数据整理工作流（A/B/C 模式 UI）
+    └── my_models.js              # 🆕 v0.9 模型版本链管理 + sparkline
 
 training/
 ├── train_ecg_arrhythmia.py       # MIT-BIH → 94.1%
@@ -781,7 +922,9 @@ training/
 | ~~注意力热力图~~ | ~~P1~~ | ✅ **v0.7 已完成** — Grad-CAM 1D 注意力可视化 |
 | ~~用户认证系统~~ | ~~P0~~ | ✅ **v0.5 已完成** — JWT + bcrypt + PostgreSQL |
 | ~~数据库集成~~ | ~~P0~~ | ✅ **v0.5 已完成** — SQLAlchemy async ORM + PostgreSQL |
-| **训练历史持久化** | P0 | 将训练记录关联用户，存入数据库（v0.5 基础设施已就绪） |
+| ~~训练历史持久化~~ | ~~P0~~ | ✅ **v0.9 已完成** — TrainingRun + ModelCheckpoint per-user 持久化 + warm-start 链 |
+| ~~原始压缩包数据预处理~~ | ~~P0~~ | ✅ **v0.9 已完成** — Data Prep 工作流（Mode A/B/C 自动滑窗） |
+| ~~自我改进模型~~ | ~~P0~~ | ✅ **v0.9 已完成** — per-user warm-start，模型随使用次数累积变好 |
 | **批量处理 API** | P1 | 支持上传多文件批量分析 |
 
 ### 12.2 中期目标（3-6 个月）
