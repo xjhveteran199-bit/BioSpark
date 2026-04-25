@@ -108,7 +108,7 @@ Railway hobby tier runs on a **shared vCPU** — there is no GPU. Realistic trai
 For datasets > 5k samples, we recommend training **locally** (or on a beefier instance) and uploading the resulting checkpoint via the warm-start mechanism.
 
 **Tuning knobs** (env vars):
-- `BIOSPARK_DATALOADER_WORKERS` (default `2`) — set to `0` if you see fork errors, or `4` on a multi-core box.
+- `BIOSPARK_DATALOADER_WORKERS` (default `0`, **forced 0 on Railway**) — set to `2` or `4` on a beefy local multi-core box for ~15-30% epoch speedup. Higher values are ignored when `RAILWAY_ENVIRONMENT` is set, because `fork()`ing workers in a 512 MB-1 GB container causes OOM kills.
 - The "Search optimal learning rate" advanced option adds **2-3 minutes** of LR range testing — disabled by default.
 
 ---
