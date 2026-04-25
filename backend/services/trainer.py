@@ -301,10 +301,19 @@ def _run_training(job: TrainingJob, X: np.ndarray, y: np.ndarray):
         X_val = torch.FloatTensor(X_3d[val_idx])
         y_val = torch.LongTensor(y[val_idx])
 
-        # DataLoader workers — speeds up CPU training by ~15-30% on multi-core
-        # machines.  Set BIOSPARK_DATALOADER_WORKERS=0 to disable (e.g. if a
-        # constrained Railway runner has fork issues).
-        _num_workers = max(0, int(os.getenv("BIOSPARK_DATALOADER_WORKERS", "2")))
+        # DataLoader workers.  Default = 0 (single-process) because:
+        #   1. Our datasets are TensorDataset (already in RAM) — workers don't
+        #      help with disk I/O that doesn't exist.
+        #   2. fork()ing workers in a memory-constrained container (Railway
+        #      hobby tier ≈ 512 MB-1 GB) causes the parent + 2 workers to
+        #      collectively OOM; the OOM-killer SIGKILLs uvicorn and training
+        #      "hangs" at epoch 0 because workers are dead.
+        # On a beefy local multi-core box, set BIOSPARK_DATALOADER_WORKERS=2
+        # or 4 manually for ~15-30% epoch speedup.  We refuse to honor it on
+        # Railway regardless of the env var to prevent the OOM regression.
+        _requested = max(0, int(os.getenv("BIOSPARK_DATALOADER_WORKERS", "0")))
+        _is_railway = bool(os.getenv("RAILWAY_ENVIRONMENT"))
+        _num_workers = 0 if _is_railway else _requested
         _persistent = _num_workers > 0
         train_loader = DataLoader(
             TensorDataset(X_train, y_train),
