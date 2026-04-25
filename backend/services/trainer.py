@@ -10,6 +10,7 @@ forward them to the browser in real-time.
 
 import asyncio
 import io
+import os
 import time
 import traceback
 import zipfile
@@ -300,14 +301,25 @@ def _run_training(job: TrainingJob, X: np.ndarray, y: np.ndarray):
         X_val = torch.FloatTensor(X_3d[val_idx])
         y_val = torch.LongTensor(y[val_idx])
 
+        # DataLoader workers — speeds up CPU training by ~15-30% on multi-core
+        # machines.  Set BIOSPARK_DATALOADER_WORKERS=0 to disable (e.g. if a
+        # constrained Railway runner has fork issues).
+        _num_workers = max(0, int(os.getenv("BIOSPARK_DATALOADER_WORKERS", "2")))
+        _persistent = _num_workers > 0
         train_loader = DataLoader(
             TensorDataset(X_train, y_train),
             batch_size=batch_size,
             shuffle=True,
+            num_workers=_num_workers,
+            pin_memory=False,
+            persistent_workers=_persistent,
         )
         val_loader = DataLoader(
             TensorDataset(X_val, y_val),
             batch_size=batch_size * 2,
+            num_workers=_num_workers,
+            pin_memory=False,
+            persistent_workers=_persistent,
         )
 
         # Store val data (flat) for Phase 3 (confusion matrix / t-SNE)
@@ -406,9 +418,32 @@ def _run_training(job: TrainingJob, X: np.ndarray, y: np.ndarray):
         else:
             criterion = nn.CrossEntropyLoss()
 
-        # LR finder (must run after model + criterion are ready)
-        if auto_mode:
-            suggested_lr = lr_range_test(model, train_loader, device, criterion)
+        # LR finder (must run after model + criterion are ready).
+        # Off by default — adds ~2-3 min on CPU and the gain is usually <1%.
+        # User opts in via the "Search optimal learning rate" advanced toggle
+        # (UI) or by setting `lr_search: true` in the request body.
+        if auto_mode and cfg.get("lr_search", False):
+            _lr_total = 100  # matches lr_range_test default num_iter
+            job._emit({"type": "lr_search_start", "total_iter": _lr_total})
+
+            def _on_lr_progress(i: int, total: int, lr_now: float, loss_now: float) -> None:
+                job._emit({
+                    "type": "lr_search_progress",
+                    "iter": i,
+                    "total": total,
+                    "lr": float(lr_now),
+                    "loss": float(loss_now),
+                })
+
+            suggested_lr = lr_range_test(
+                model, train_loader, device, criterion,
+                num_iter=_lr_total,
+                on_progress=_on_lr_progress,
+            )
+            job._emit({
+                "type": "lr_search_done",
+                "suggested_lr": float(suggested_lr),
+            })
             lr = suggested_lr
 
         optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)

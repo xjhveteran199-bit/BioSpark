@@ -74,6 +74,45 @@ docker compose up --build
 
 ---
 
+## Railway 部署须知 / Railway Deployment Notes
+
+> **必读**：默认 SQLite 数据库会被 Railway 容器重启擦除 → 注册的账号下次登录会显示「账号不存在」。生产部署**必须**挂 PostgreSQL 插件。
+
+> **Important**: BioSpark uses SQLite by default, but Railway's container filesystem is **ephemeral** — every redeploy or auto-restart wipes the local DB file. User accounts created today will be gone tomorrow. **You must attach a PostgreSQL plugin** for production.
+
+**5 步 / 5-step setup**:
+
+1. Open your Railway project dashboard.
+2. Click **`+ New`** → **`Database`** → **`Add PostgreSQL`**.
+3. Wait ~30 seconds for the plugin to provision. Railway automatically injects `DATABASE_URL` into your web service.
+4. Trigger a redeploy (push a commit, or **Deployments → Redeploy**).
+5. Verify in Railway logs: you should see
+   ```
+   DB engine initialized: driver=postgresql+asyncpg ...
+   DB self-check: users table count = N
+   ```
+   If you see `driver=sqlite+aiosqlite` instead, the env var is not set — recheck the plugin attachment.
+
+The code (`backend/database.py`) auto-rewrites `postgres://` → `postgresql+asyncpg://`, so no code changes are needed.
+
+### CPU 训练时长 / CPU Training Performance Notes
+
+Railway hobby tier runs on a **shared vCPU** — there is no GPU. Realistic training times:
+
+| Preset | Sample size | Expected time |
+|--------|-------------|---------------|
+| Quick Test | < 1k | 30s – 2 min |
+| Smart Auto | 1k – 5k | 3 – 10 min |
+| Publication Ready | 5k – 20k | 15 – 45 min |
+
+For datasets > 5k samples, we recommend training **locally** (or on a beefier instance) and uploading the resulting checkpoint via the warm-start mechanism.
+
+**Tuning knobs** (env vars):
+- `BIOSPARK_DATALOADER_WORKERS` (default `2`) — set to `0` if you see fork errors, or `4` on a multi-core box.
+- The "Search optimal learning rate" advanced option adds **2-3 minutes** of LR range testing — disabled by default.
+
+---
+
 ## How It Works
 
 ```

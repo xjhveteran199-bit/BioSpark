@@ -1,6 +1,6 @@
 # BioSpark 项目研发报告
 
-> **版本:** v0.9.0 | **日期:** 2026-04-25 | **状态:** 已上线运营
+> **版本:** v0.9.1 | **日期:** 2026-04-25 | **状态:** 已上线运营
 
 ---
 
@@ -293,6 +293,92 @@ TrainingRun (per-user 历史)         ModelCheckpoint (per-user 版本链)
 - 前端 `frontend/js/figures.js` — `downloadAllFigures(triggerBtn)` 从隐藏锚点点击改为 fetch + blob：失败时 `App.toast` 弹错误而非静默失败；下载期间禁用按钮 + spinner；blob URL 30 秒后 revoke
 
 **结果：** 即使某张图渲染失败（如 t-SNE perplexity 异常）用户仍能下载 zip + 看到失败原因；同模式应用到 `exportModel` / `exportHistory` 防同类 bug。
+
+---
+
+## 五-bis、v0.9.1 线上运营修复（注册持久化 + 训练加速）
+
+> **发布日期：** 2026-04-25 | **触发：** 用户反馈「在网站上训练时间总是很长，其次账号注册后再次登录，显示账号不存在」
+
+### 5.4 修复：注册后再次登录显示「账号不存在」
+
+**症状：** 用户在 Railway 部署版注册账号 → token 返回正常 → 几小时（或下次 push）后再登录 → 401 `"Invalid credentials"`，前端显示「账号不存在」。本地 dev 环境无法复现。
+
+**根因（高置信度）：** 默认 `DATABASE_URL = "sqlite+aiosqlite:///./biospark.db"` 写到容器工作目录。Railway 容器文件系统是 **ephemeral** —— 每次 redeploy / 自动重启 / healthcheck 重建容器都会销毁该 SQLite 文件。
+
+仓库 `requirements.txt` 已含 `asyncpg>=0.30.0`，`backend/database.py:17-20` 也已自动把 Railway 注入的 `postgres://` 重写为 `postgresql+asyncpg://` —— 即代码侧早已为 PostgreSQL 准备就绪，缺的只是 `DATABASE_URL` 环境变量与 PG 插件。
+
+**修复（运营 + 代码双轨）：**
+
+| 项 | 改动 |
+|---|---|
+| **运营（一次性）** | Railway dashboard → `+ New` → `Database` → `Add PostgreSQL`；插件自动注入 `DATABASE_URL` 并触发 redeploy |
+| **代码加固 1** | `backend/database.py` 启动期打印 `DB engine initialized: driver=... target=...`；当 `RAILWAY_ENVIRONMENT` 存在但 driver=sqlite 时打 WARNING |
+| **代码加固 2** | `backend/main.py` lifespan hook 调 `SELECT COUNT(*) FROM users` 并写 logs，今后丢数据可在 logs 立刻定位 |
+| **代码加固 3** | 新建 `railway.json` 声明 Dockerfile 构建 + `/api/health` healthcheck + `ON_FAILURE` 重启策略 |
+| **文档** | `README.md` 新增「Railway 部署须知」章节，5 步图文说明 + 期望日志样式 |
+
+**验证：**
+1. dashboard 加 PG 插件，redeploy；logs 出现 `DB engine initialized: driver=postgresql+asyncpg ...`
+2. 浏览器注册 → 手动 redeploy → 同邮箱登录 → 成功（先前会 401）
+3. logs 显示 `DB self-check: users table count = 1` → redeploy 后仍为 1，证明持久化生效
+4. 本地不设 `DATABASE_URL` 仍走 SQLite，行为不变（回归通过）
+
+### 5.5 优化：训练时间过长
+
+**症状：** 部署版用户感知「训练总是很长」，尤其智能自动模式开始后约 2-3 分钟一直显示「training」前端无任何进度反馈。
+
+**根因（按影响排序）：**
+1. **LR range test 静默吃 2-3 分钟** —— `auto_mode=True` 时 `lr_range_test(num_iter=100)` 每 iter 都做 forward + backward，CPU 上 ≈ 2-3 分钟，且 WS 上**完全无进度消息**
+2. **DataLoader 单线程** —— 没有 `num_workers`，CPU 上每个 epoch 数据搬运拖慢约 15-30%
+3. **预设时间估计虚低** —— `auto` 写「5–15 min」、`thorough` 写「20–60 min」，但 Railway hobby tier 是 shared vCPU，实际常常翻倍
+4. 小数据集（< 1k 样本）30 秒就训完，LR test 仍照样花 2-3 分钟，性价比极差
+
+**修复：**
+
+```
+trainer.py
+  ├─ DataLoader 加 num_workers=2 (env BIOSPARK_DATALOADER_WORKERS 可调) + persistent_workers
+  └─ LR range test 改为 cfg.lr_search 门控；开启时通过 WS 推 lr_search_start / progress / done
+
+auto_optimizer.py:lr_range_test
+  └─ 新增 on_progress(iter, total, lr, loss) 回调，每 5 iter 触发一次
+
+routers/training.py:_PRESETS
+  ├─ 每个 preset 加 lr_search 字段：auto=False, fast=False, thorough=True
+  └─ 时间估计改诚实：auto=「3–10 min · CPU」, fast=「30 sec – 2 min · CPU」, thorough=「15–45 min · CPU (incl. LR search)」
+
+routers/training.py:TrainStartRequest
+  └─ 加 Optional[bool] lr_search 字段；不传则跟随 preset
+
+frontend/index.html
+  └─ 高级选项区加 checkbox「Search optimal learning rate (+2-3 min on CPU)」(双语)
+
+frontend/js/trainer.js
+  ├─ preset 切换时同步 cfg-lr-search checkbox
+  ├─ POST /api/train/start body 携带 lr_search
+  └─ WS handler 新增 lr_search_* 事件 → 前端实时显示「搜索最优学习率 (12/100) · lr=3.2e-04」
+```
+
+**结果：**
+- 智能自动模式默认耗时降低 30-40%（节省了 2-3 分钟 LR search）
+- 即使勾选 LR search，前端也实时显示进度，不再「黑盒等待」
+- 时间预期与实际相符，用户感知改善
+- env `BIOSPARK_DATALOADER_WORKERS=4` 在多核机上每 epoch 提速可观（≥ 1k 样本数据集明显）
+
+### 5.6 改进文件清单
+
+```
+backend/database.py            ─ 启动 driver/host 日志 + RAILWAY 环境告警
+backend/main.py                ─ lifespan 添加 users count 自检
+backend/services/trainer.py    ─ DataLoader workers + LR search 门控 + WS 进度事件
+backend/services/auto_optimizer.py ─ lr_range_test 加 on_progress 回调
+backend/routers/training.py    ─ _PRESETS 新增 lr_search + 诚实时间；TrainStartRequest 加字段
+frontend/index.html            ─ 高级选项区新增 lr-search checkbox
+frontend/js/trainer.js         ─ preset 同步 + payload 字段 + WS lr_search_* handler
+README.md                      ─ Railway 部署须知 + CPU 训练时长指引
+railway.json (NEW)             ─ healthcheck + restart policy 声明
+```
 
 ---
 

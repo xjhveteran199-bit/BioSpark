@@ -57,15 +57,16 @@ _PRESETS = {
     "auto": {
         "label_en": "Smart Auto (Recommended)",
         "label_zh": "智能自动（推荐）",
-        "description_en": "Automatically picks the best learning rate, architecture, and stops when performance plateaus. Best for most datasets.",
-        "description_zh": "自动选择最佳学习率和网络结构，性能不再提升时自动停止。适合大多数数据集。",
-        "time_estimate_en": "5–15 min · Good for publications",
-        "time_estimate_zh": "约 5–15 分钟 · 适合发表",
+        "description_en": "Auto-picks architecture, applies class weights, and stops when performance plateaus. LR search off by default — toggle it on under Advanced for an extra +2-3 min.",
+        "description_zh": "自动选择网络结构 + 类别加权 + 早停。默认跳过学习率搜索，可在高级选项中开启（额外 +2-3 分钟）。",
+        "time_estimate_en": "3–10 min · CPU",
+        "time_estimate_zh": "约 3–10 分钟 · CPU",
         "epochs": 50,
         "learning_rate": 1e-3,
         "batch_size": 64,
         "val_split": 0.2,
         "auto_mode": True,
+        "lr_search": False,
         "early_stopping_patience": 12,
         "use_class_weights": True,
     },
@@ -74,28 +75,30 @@ _PRESETS = {
         "label_zh": "快速测试",
         "description_en": "20 epochs without LR search. Useful for checking data quality before committing to a full run.",
         "description_zh": "20 轮训练，跳过学习率搜索。适合快速验证数据质量。",
-        "time_estimate_en": "1–3 min · For exploration",
-        "time_estimate_zh": "约 1–3 分钟 · 用于探索",
+        "time_estimate_en": "30 sec – 2 min · CPU",
+        "time_estimate_zh": "约 30 秒 – 2 分钟 · CPU",
         "epochs": 20,
         "learning_rate": 1e-3,
         "batch_size": 64,
         "val_split": 0.2,
         "auto_mode": False,
+        "lr_search": False,
         "early_stopping_patience": 8,
         "use_class_weights": True,
     },
     "thorough": {
         "label_en": "Publication Ready",
         "label_zh": "发表级别",
-        "description_en": "100 epochs with full auto-optimization. Maximizes accuracy — use this for your final submitted model.",
-        "description_zh": "100 轮完整自动优化，最大化准确率。适合最终投稿前的训练。",
-        "time_estimate_en": "20–60 min · For submission",
-        "time_estimate_zh": "约 20–60 分钟 · 用于投稿",
+        "description_en": "100 epochs with full auto-optimization including LR search. Maximizes accuracy — use this for your final submitted model.",
+        "description_zh": "100 轮完整自动优化（含学习率搜索），最大化准确率。适合最终投稿前的训练。",
+        "time_estimate_en": "15–45 min · CPU (incl. LR search)",
+        "time_estimate_zh": "约 15–45 分钟 · CPU（含学习率搜索）",
         "epochs": 100,
         "learning_rate": 1e-3,
         "batch_size": 32,
         "val_split": 0.2,
         "auto_mode": True,
+        "lr_search": True,
         "early_stopping_patience": 20,
         "use_class_weights": True,
     },
@@ -111,6 +114,7 @@ _PRESETS = {
         "batch_size": 64,
         "val_split": 0.2,
         "auto_mode": False,
+        "lr_search": False,
         "early_stopping_patience": 10,
         "use_class_weights": True,
     },
@@ -192,6 +196,10 @@ class TrainStartRequest(BaseModel):
     auto_mode: bool = Field(default=False, description="Enable auto LR finder, architecture selection, and class weights")
     early_stopping_patience: int = Field(default=10, ge=3, le=50, description="Epochs without improvement before early stop")
     use_class_weights: bool = Field(default=True, description="Auto-compute class weights for imbalanced data")
+    # Optional override for the LR range test (None = follow preset default).
+    # On CPU the search adds ~2-3 minutes for typically <1% accuracy gain, so
+    # the auto preset disables it by default and exposes a UI toggle.
+    lr_search: Optional[bool] = Field(default=None, description="Override the preset's LR range test setting; None = follow preset")
     # Self-improving (warm-start) field
     warm_start: bool = Field(default=False, description="Continue training from this user's last best checkpoint when shapes are compatible")
 
@@ -391,6 +399,12 @@ async def start_training(
         "auto_mode": req.auto_mode if req.preset == "custom" else preset_cfg["auto_mode"],
         "early_stopping_patience": req.early_stopping_patience if req.preset == "custom" else preset_cfg["early_stopping_patience"],
         "use_class_weights": req.use_class_weights if req.preset == "custom" else preset_cfg["use_class_weights"],
+        # lr_search: explicit request value wins; otherwise inherit from preset
+        # (defaults to False for "auto" so we don't burn 2-3 min by surprise).
+        "lr_search": (
+            req.lr_search if req.lr_search is not None
+            else preset_cfg.get("lr_search", False)
+        ),
         "warm_start": req.warm_start,
     }
 
