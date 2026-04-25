@@ -10,6 +10,7 @@ Provides:
 
 import copy
 import math
+from typing import Callable, Optional
 
 import numpy as np
 import torch
@@ -29,6 +30,7 @@ def lr_range_test(
     start_lr: float = 1e-6,
     end_lr: float = 1.0,
     num_iter: int = 100,
+    on_progress: Optional[Callable[[int, int, float, float], None]] = None,
 ) -> float:
     """Run a mini LR range test (Smith 2017) and return the suggested LR.
 
@@ -38,6 +40,11 @@ def lr_range_test(
 
     The model's ``state_dict`` is saved before the test and restored
     afterwards so that the actual training starts from untouched weights.
+
+    ``on_progress(iter_idx, total, current_lr, smoothed_loss)`` is invoked
+    every 5 iterations (and on the last one) so the caller can stream a
+    progress bar to the UI — without it, the ~2-3 minute test feels like a
+    hang on a busy CPU.
     """
     saved_state = copy.deepcopy(model.state_dict())
 
@@ -83,6 +90,13 @@ def lr_range_test(
 
         lrs.append(current_lr)
         losses.append(smoothed_loss)
+
+        # Stream progress every 5 iters and on the last one — keeps the UI alive.
+        if on_progress is not None and (i % 5 == 0 or i == num_iter - 1):
+            try:
+                on_progress(i + 1, num_iter, current_lr, smoothed_loss)
+            except Exception:
+                pass  # progress callback must never break training
 
         # Step LR
         current_lr *= lr_mult

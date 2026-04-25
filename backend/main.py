@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -5,8 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pathlib import Path
+from sqlalchemy import text
 
-from backend.database import init_db
+from backend.database import init_db, async_session
 from backend.models import training_history  # noqa: F401  -- ensure tables register
 from backend.routers import training as training_router
 from backend.routers import model_history as model_history_router
@@ -23,10 +25,25 @@ except ImportError:
     _inference_available = False
 
 
+_log = logging.getLogger("biospark.startup")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: create database tables
     await init_db()
+
+    # Self-check: count existing user rows so Railway logs make data loss obvious.
+    # If you registered an account yesterday and this prints 0 today, your DB
+    # is on an ephemeral filesystem (attach PostgreSQL plugin and set DATABASE_URL).
+    try:
+        async with async_session() as session:
+            row = await session.execute(text("SELECT COUNT(*) FROM users"))
+            user_count = row.scalar_one()
+            _log.warning("DB self-check: users table count = %s", user_count)
+    except Exception as exc:  # noqa: BLE001 — diagnostic only, never block startup
+        _log.warning("DB self-check failed (table may not exist yet): %s", exc)
+
     yield
 
 

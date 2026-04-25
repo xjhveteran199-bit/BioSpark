@@ -395,13 +395,20 @@ const Trainer = (() => {
         }
         // Apply preset defaults to form (for non-custom presets, show read-only note)
         if (preset && preset !== 'custom') {
-            const presetDefaults = { auto: [50, 0.001, 64, true], fast: [20, 0.001, 64, false], thorough: [100, 0.001, 32, true] };
-            const [ep, lr, bs, am] = presetDefaults[preset] || [30, 0.001, 64, false];
+            // [epochs, lr, batch_size, auto_mode, lr_search]
+            const presetDefaults = {
+                auto:     [50,  0.001, 64, true,  false],
+                fast:     [20,  0.001, 64, false, false],
+                thorough: [100, 0.001, 32, true,  true],
+            };
+            const [ep, lr, bs, am, lrSearch] = presetDefaults[preset] || [30, 0.001, 64, false, false];
             document.getElementById('cfg-epochs').value = ep;
             document.getElementById('cfg-lr').value = lr;
             document.getElementById('cfg-batch').value = String(bs);
             const autoEl = document.getElementById('cfg-auto-mode');
             if (autoEl) { autoEl.checked = am; autoEl.dispatchEvent(new Event('change')); }
+            const lrSearchEl = document.getElementById('cfg-lr-search');
+            if (lrSearchEl) lrSearchEl.checked = !!lrSearch;
         }
         document.getElementById('train-config-section').scrollIntoView({ behavior: 'smooth' });
     }
@@ -438,6 +445,7 @@ const Trainer = (() => {
                     auto_mode: document.getElementById('cfg-auto-mode')?.checked || false,
                     early_stopping_patience: parseInt(document.getElementById('cfg-early-stop')?.value) || 10,
                     use_class_weights: document.getElementById('cfg-class-weights')?.checked !== false,
+                    lr_search: document.getElementById('cfg-lr-search')?.checked || false,
                     warm_start: document.getElementById('cfg-warm-start')?.checked || false,
                 }),
             });
@@ -587,6 +595,30 @@ const Trainer = (() => {
             if (msg.type === 'epoch') {
                 history.push(msg);
                 _updateCharts(msg);
+            }
+
+            // ── LR range test progress (only emitted when user opted in) ──
+            if (msg.type === 'lr_search_start') {
+                const isZh = (window.App && App.lang === 'zh');
+                _setStatus('train-run-status', 'loading',
+                    `<span class="spinner"></span>` + (isZh
+                        ? `搜索最优学习率（0/${msg.total_iter || 100}）…`
+                        : `Searching optimal learning rate (0/${msg.total_iter || 100})…`));
+            }
+            if (msg.type === 'lr_search_progress') {
+                const isZh = (window.App && App.lang === 'zh');
+                const lrStr = (typeof msg.lr === 'number') ? msg.lr.toExponential(2) : '?';
+                _setStatus('train-run-status', 'loading',
+                    `<span class="spinner"></span>` + (isZh
+                        ? `搜索最优学习率（${msg.iter}/${msg.total}） · lr=${lrStr}`
+                        : `Searching optimal learning rate (${msg.iter}/${msg.total}) · lr=${lrStr}`));
+            }
+            if (msg.type === 'lr_search_done') {
+                const isZh = (window.App && App.lang === 'zh');
+                const lrStr = (typeof msg.suggested_lr === 'number') ? msg.suggested_lr.toExponential(2) : '?';
+                _setStatus('train-run-status', 'success', isZh
+                    ? `已找到推荐学习率 lr=${lrStr}，开始训练…`
+                    : `Suggested learning rate lr=${lrStr}, starting training…`);
             }
 
             if (msg.type === 'complete') {
